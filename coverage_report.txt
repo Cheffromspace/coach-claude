@@ -1,0 +1,85 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-8.3.4, pluggy-1.5.0 -- /home/jonflatt/source/mcp-client/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/jonflatt/source/mcp-client
+configfile: pyproject.toml
+plugins: cov-6.0.0, asyncio-0.25.0, anyio-4.7.0, mock-3.14.0
+asyncio: mode=strict, asyncio_default_fixture_loop_scope=function
+collecting ... collected 41 items
+
+tests/test_config_manager.py::test_config_manager_init PASSED            [  2%]
+tests/test_config_manager.py::test_load_valid_config PASSED              [  4%]
+tests/test_config_manager.py::test_load_invalid_config PASSED            [  7%]
+tests/test_config_manager.py::test_get_server_config PASSED              [  9%]
+tests/test_config_manager.py::test_validate_server_config PASSED         [ 12%]
+tests/test_message_processor.py::test_message_processor_init PASSED      [ 14%]
+tests/test_message_processor.py::test_message_processor_handle_tool_request PASSED [ 17%]
+tests/test_message_processor.py::test_message_processor_handle_resource_request PASSED [ 19%]
+tests/test_message_processor.py::test_message_processor_error_handling PASSED [ 21%]
+tests/test_message_processor.py::test_message_processor_invalid_message PASSED [ 24%]
+tests/test_message_processor.py::test_message_processor_server_error PASSED [ 26%]
+tests/test_query_processor.py::test_query_processor_init PASSED          [ 29%]
+tests/test_query_processor.py::test_basic_query_processing PASSED        [ 31%]
+tests/test_query_processor.py::test_query_processing_with_tool_call PASSED [ 34%]
+tests/test_query_processor.py::test_query_processing_max_iterations PASSED [ 36%]
+tests/test_query_processor.py::test_query_processing_tool_error PASSED   [ 39%]
+tests/test_query_processor.py::test_query_processing_with_context PASSED [ 41%]
+tests/test_query_processor.py::test_query_processing_tool_not_found PASSED [ 43%]
+tests/test_query_processor.py::test_health_check_interval PASSED         [ 46%]
+tests/test_server_manager.py::test_server_manager_initialization PASSED  [ 48%]
+tests/test_server_manager.py::test_get_server_env PASSED                 [ 51%]
+tests/test_server_manager.py::test_connect_to_server_success PASSED      [ 53%]
+tests/test_server_manager.py::test_connect_to_server_retry_logic PASSED  [ 56%]
+tests/test_server_manager.py::test_connect_to_server_timeout PASSED      [ 58%]
+tests/test_server_manager.py::test_check_server_health PASSED            [ 60%]
+tests/test_server_manager.py::test_check_server_health_failure PASSED    [ 63%]
+tests/test_server_manager.py::test_get_all_tools PASSED                  [ 65%]
+tests/test_server_manager.py::test_call_tool PASSED                      [ 68%]
+tests/test_server_manager.py::test_call_tool_not_found PASSED            [ 70%]
+tests/test_server_manager.py::test_cleanup_server PASSED                 [ 73%]
+tests/test_server_manager.py::test_cleanup_all PASSED                    [ 75%]
+tests/test_server_manager.py::test_cleanup_server_force_kill PASSED      [ 78%]
+tests/test_server_manager.py::test_start_server_not_in_config PASSED     [ 80%]
+tests/test_server_manager.py::test_start_server_connection_failure PASSED [ 82%]
+tests/test_server_manager.py::test_check_server_health_timeout PASSED    [ 85%]
+tests/test_server_manager.py::test_check_server_health_missing_server PASSED [ 87%]
+tests/test_server_manager.py::test_connect_server_missing_args PASSED    [ 90%]
+tests/test_server_manager.py::test_check_servers_health_mixed_status PASSED [ 92%]
+tests/test_server_manager.py::test_connect_invalid_server_config PASSED  [ 95%]
+tests/test_server_manager.py::test_cleanup_server_error_handling PASSED  [ 97%]
+tests/test_server_manager.py::test_stop_and_restart_server PASSED        [100%]
+
+=============================== warnings summary ===============================
+tests/test_message_processor.py: 6 warnings
+tests/test_query_processor.py: 8 warnings
+tests/test_server_manager.py: 22 warnings
+  /home/jonflatt/source/mcp-client/.venv/lib/python3.10/site-packages/pytest_asyncio/plugin.py:854: DeprecationWarning: The event_loop fixture provided by pytest-asyncio has been redefined in
+  /home/jonflatt/source/mcp-client/tests/conftest.py:40
+  Replacing the event_loop fixture with a custom implementation is deprecated
+  and will lead to errors in the future.
+  If you want to request an asyncio event loop with a scope other than function
+  scope, use the "scope" argument to the asyncio mark when marking the tests.
+  If you want to return different types of event loops, use the event_loop_policy
+  fixture.
+  
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+---------- coverage: platform linux, python 3.10.12-final-0 ----------
+Name                                         Stmts   Miss  Cover   Missing
+--------------------------------------------------------------------------
+mcp_client/__init__.py                           5      0   100%
+mcp_client/config/__init__.py                    2      0   100%
+mcp_client/config/config_manager.py             69     17    75%   25, 45, 54, 63-64, 66-67, 85, 89-102
+mcp_client/processing/__init__.py                2      0   100%
+mcp_client/processing/message_processor.py      34      6    82%   17, 25, 29, 35, 41, 45
+mcp_client/processing/query_processor.py        71      0   100%
+mcp_client/server/__init__.py                    2      0   100%
+mcp_client/server/server_manager.py            136      6    96%   75-76, 112, 177, 180-181
+mcp_client/utils/__init__.py                     2      0   100%
+mcp_client/utils/logging_config.py              17     13    24%   13-35
+--------------------------------------------------------------------------
+TOTAL                                          340     42    88%
+
+======================= 41 passed, 36 warnings in 14.64s =======================
