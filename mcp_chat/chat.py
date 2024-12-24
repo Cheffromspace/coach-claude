@@ -1,31 +1,16 @@
 import json
 import os
+import asyncio
 from datetime import datetime
 from rich.console import Console
-from rich.prompt import Prompt
-from rich.panel import Panel
-from rich.text import Text
-from rich.live import Live
-from rich.layout import Layout
 
 class MCPChatInterface:
-    def __init__(self, mcp_client):
+    def __init__(self, mcp_client, load_existing_history=False):
         """Initialize chat interface with an MCPClient instance"""
         self.mcp_client = mcp_client
         self.console = Console()
         self.history_file = "chat_history.json"
-        self.history = self.load_history()
-        self.layout = self._create_layout()
-
-    def _create_layout(self):
-        """Create the terminal UI layout"""
-        layout = Layout()
-        layout.split_column(
-            Layout(name="header", size=3),
-            Layout(name="body", ratio=8),
-            Layout(name="input", size=3)
-        )
-        return layout
+        self.history = self.load_history() if load_existing_history else []
 
     def load_history(self):
         """Load chat history from file"""
@@ -37,46 +22,42 @@ class MCPChatInterface:
                 return []
         return []
 
+    def clear_history(self):
+        """Clear chat history and backup the old one"""
+        if os.path.exists(self.history_file):
+            backup_file = f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            os.rename(self.history_file, backup_file)
+        self.history = []
+        self.save_history()
+
     def save_history(self):
         """Save chat history to file"""
         with open(self.history_file, 'w') as f:
             json.dump(self.history, f, indent=2)
 
-    def format_message(self, message):
-        """Format a message for display"""
+    def print_message(self, message):
+        """Print a message to the console"""
         timestamp = message.get('timestamp', '')
         content = message.get('content', '')
         role = message.get('role', 'user')
         
-        text = Text()
-        text.append(f"[{timestamp}] ", style="bright_black")
-        
+        self.console.print(f"[bright_black][{timestamp}][/]", end=" ")
         if role == "user":
-            text.append("You: ", style="bright_blue")
+            self.console.print("You:", style="bright_blue", end=" ")
         else:
-            text.append("Assistant: ", style="bright_green")
-        
-        text.append(content)
-        return Panel(text, border_style="bright_black")
+            self.console.print("Assistant:", style="bright_green", end=" ")
+        self.console.print(content)
 
-    def update_display(self):
-        """Update the terminal display"""
-        # Update header
-        self.layout["header"].update(
-            Panel("MCP Chat Interface", style="bold blue", border_style="blue")
-        )
-        
-        # Update message history
-        history_text = Text()
-        for message in self.history:
-            history_text.append(self.format_message(message))
-            history_text.append("\n")
-        self.layout["body"].update(Panel(history_text, title="Chat History"))
-        
-        # Update input area
-        self.layout["input"].update(
-            Panel("Type your message (Ctrl+C to exit)", style="bold yellow")
-        )
+    def get_conversation_context(self, limit=10):
+        """Get recent conversation history as context"""
+        recent_messages = self.history[-limit:] if self.history else []
+        return [
+            {
+                'role': msg['role'],
+                'content': msg['content']
+            }
+            for msg in recent_messages
+        ]
 
     async def add_message(self, content, role="user"):
         """Add a message to history and process with MCP if needed"""
@@ -86,12 +67,13 @@ class MCPChatInterface:
             'role': role
         }
         self.history.append(message)
+        self.print_message(message)
         self.save_history()
 
         if role == "user":
-            # Process through MCP client
             try:
-                response = await self.mcp_client.process_query(content)
+                context = self.get_conversation_context()
+                response = await self.mcp_client.process_query(content, context)
                 await self.add_message(response, role="assistant")
             except Exception as e:
                 error_msg = f"Error processing message: {str(e)}"
@@ -99,20 +81,23 @@ class MCPChatInterface:
 
     async def run(self):
         """Run the chat interface"""
-        self.console.clear()
+        self.console.print("MCP Chat Interface - Type 'quit' to exit", style="bold blue")
+        self.console.print("----------------------------------------")
+        
+        # Print existing history
+        for message in self.history:
+            self.print_message(message)
         
         try:
-            with Live(self.layout, refresh_per_second=4, screen=True):
-                while True:
-                    self.update_display()
-                    message = Prompt.ask("\nEnter your message")
+            while True:
+                message = input("> ")
+                
+                if message.strip().lower() == 'quit':
+                    break
                     
-                    if message.strip().lower() == 'quit':
-                        break
-                        
-                    if message.strip():
-                        await self.add_message(message)
-                        
+                if message.strip():
+                    await self.add_message(message)
+                    
         except KeyboardInterrupt:
             self.console.print("\nGoodbye!", style="bold red")
         finally:

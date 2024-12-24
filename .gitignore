@@ -10,3 +10,11 @@ wheels/
 .venv
 .env
 node_modules/
+
+# Logs and history
+*.log
+chat_history*.json
+chat_history/
+
+# Lock files
+*.lock

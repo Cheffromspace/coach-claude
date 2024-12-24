@@ -7,6 +7,15 @@
     "memory": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/home/jonflatt/mcp-client-files",
+        "/home/jonflatt/source/mcp-client"
+      ]
     }
   }
 }
