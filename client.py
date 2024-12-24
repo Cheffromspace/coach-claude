@@ -1,9 +1,10 @@
 import asyncio
 import logging
+import json
 import os
 import subprocess
 import time
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 from contextlib import AsyncExitStack
 from datetime import datetime, timedelta
 
@@ -25,59 +26,51 @@ load_dotenv()  # load environment variables from .env
 class MCPClient:
     def __init__(self):
         # Initialize session and client objects
-        self.session: Optional[ClientSession] = None
+        self.sessions = {}  # Dictionary to store multiple sessions
         self.exit_stack = AsyncExitStack()
         self.anthropic = Anthropic()
-        self.server_process: Optional[subprocess.Popen] = None
-        self.last_health_check: Optional[datetime] = None
-        self.connected = False
+        self.server_processes = {}  # Dictionary to store server processes
+        self.last_health_checks = {}  # Dictionary to store health check times
+        self.connected_servers = set()  # Set of connected server names
         self.max_retries = 3
         self.retry_delay = 1  # Initial delay in seconds
+        
+        # Load MCP server config
+        self.config = self._load_config()
 
-    async def _check_server_health(self) -> bool:
-        """Check if the server is healthy by attempting to list tools"""
+    async def _check_server_health(self, server_name: str) -> bool:
+        """Check if a server is healthy by attempting to list tools"""
         try:
-            if not self.session:
+            if server_name not in self.sessions:
                 return False
-            await self.session.list_tools()
-            self.last_health_check = datetime.now()
+            await self.sessions[server_name].list_tools()
+            self.last_health_checks[server_name] = datetime.now()
             return True
         except Exception as e:
-            logger.warning(f"Health check failed: {str(e)}")
+            logger.warning(f"Health check failed for {server_name}: {str(e)}")
             return False
 
-    def _parse_server_command(self, server_command: str) -> Tuple[str, list[str], dict]:
-        """Parse server command into components
-        
-        Args:
-            server_command: Command to start the server
-            
-        Returns:
-            Tuple[str, list[str], dict]: Command, arguments, and environment variables
-        """
+    def _load_config(self) -> Dict:
+        """Load MCP server configuration from config file"""
+        try:
+            with open('config.json', 'r') as f:
+                config = json.load(f)
+            return config
+        except Exception as e:
+            logger.error(f"Failed to load config file: {str(e)}")
+            return {"mcpServers": {}}
+
+    def _get_server_env(self, command: str) -> dict:
+        """Get environment variables for server command"""
         env = {}
-        
-        if server_command.startswith(('npm ', 'npx ')):
-            parts = server_command.split(maxsplit=2)
-            if len(parts) < 2:
-                raise ValueError("Invalid npm/npx command")
-                
-            command = parts[0]  # npm or npx
-            args = parts[1:]  # The rest of the command as args
-            
-            # Add node environment variables
+        if command in ('npm', 'npx'):
             env.update({
                 'NODE_ENV': 'development',
                 'PATH': os.environ.get('PATH', '')
             })
-        else:
-            parts = server_command.split()
-            command = parts[0]
-            args = parts[1:] if len(parts) > 1 else []
-            
-        return command, args, env
+        return env
 
-    async def connect_to_server(self, server_command: str, timeout: int = 30) -> bool:
+    async def connect_to_server(self, server_name: str, timeout: int = 30) -> bool:
         """Connect to an MCP server with retry logic
         
         Args:
@@ -97,12 +90,15 @@ class MCPClient:
                     logger.info(f"Retrying connection in {delay} seconds...")
                     await asyncio.sleep(delay)
                 
-                # Parse the server command
-                try:
-                    command, args, env = self._parse_server_command(server_command)
-                except ValueError as e:
-                    logger.error(str(e))
+                # Get server config
+                if server_name not in self.config['mcpServers']:
+                    logger.error(f"Server {server_name} not found in config")
                     return False
+
+                server_config = self.config['mcpServers'][server_name]
+                command = server_config['command']
+                args = server_config['args']
+                env = self._get_server_env(command)
                 
                 # Set up server parameters
                 server_params = StdioServerParameters(
@@ -111,36 +107,37 @@ class MCPClient:
                     env=env
                 )
                 
-                logger.info("Connecting to server...")
+                logger.info(f"Connecting to server {server_name}...")
                 stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
-                self.stdio, self.write = stdio_transport
+                stdio, write = stdio_transport
                 
-                logger.info("Initializing session...")
-                self.session = await self.exit_stack.enter_async_context(ClientSession(self.stdio, self.write))
-                await self.session.initialize()
+                logger.info(f"Initializing session for {server_name}...")
+                session = await self.exit_stack.enter_async_context(ClientSession(stdio, write))
+                await session.initialize()
                 
                 # List available tools
-                logger.info("Getting available tools...")
-                response = await self.session.list_tools()
+                logger.info(f"Getting available tools from {server_name}...")
+                response = await session.list_tools()
                 tools = response.tools
-                logger.info(f"Connected to server with tools: {[tool.name for tool in tools]}")
+                logger.info(f"Connected to server {server_name} with tools: {[tool.name for tool in tools]}")
                 
-                self.connected = True
-                self.last_health_check = datetime.now()
+                self.sessions[server_name] = session
+                self.connected_servers.add(server_name)
+                self.last_health_checks[server_name] = datetime.now()
                 return True
                 
             except Exception as e:
                 logger.error(f"Connection attempt {retry_count + 1} failed: {str(e)}")
                 retry_count += 1
                 
-                if self.session:
-                    await self.cleanup()
+                if server_name in self.sessions:
+                    await self.cleanup_server(server_name)
         
         logger.error(f"Failed to connect after {retry_count} attempts")
         return False
 
     async def process_query(self, query: str, health_check_interval: int = 60) -> str:
-        """Process a query using Claude and available tools"""
+        """Process a query using Claude and available tools from all connected servers"""
         messages = [
             {
                 "role": "user",
@@ -148,18 +145,23 @@ class MCPClient:
             }
         ]
 
-        # Perform health check if needed
-        if (not self.last_health_check or 
-            (datetime.now() - self.last_health_check) > timedelta(seconds=health_check_interval)):
-            if not await self._check_server_health():
-                raise ConnectionError("Server health check failed")
+        # Perform health check for all servers if needed
+        for server_name in self.connected_servers:
+            if (server_name not in self.last_health_checks or 
+                (datetime.now() - self.last_health_checks[server_name]) > timedelta(seconds=health_check_interval)):
+                if not await self._check_server_health(server_name):
+                    raise ConnectionError(f"Server health check failed for {server_name}")
         
-        response = await self.session.list_tools()
-        available_tools = [{ 
-            "name": tool.name,
-            "description": tool.description,
-            "input_schema": tool.inputSchema
-        } for tool in response.tools]
+        # Collect tools from all connected servers
+        available_tools = []
+        for server_name, session in self.sessions.items():
+            response = await session.list_tools()
+            server_tools = [{ 
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.inputSchema
+            } for tool in response.tools]
+            available_tools.extend(server_tools)
 
         # Initial Claude API call
         response = self.anthropic.messages.create(
@@ -181,7 +183,18 @@ class MCPClient:
                 tool_args = content.input
                 
                 # Execute tool call
-                result = await self.session.call_tool(tool_name, tool_args)
+                # Find which server has the requested tool
+                tool_server = None
+                for server_name, session in self.sessions.items():
+                    tools_response = await session.list_tools()
+                    if any(tool.name == tool_name for tool in tools_response.tools):
+                        tool_server = server_name
+                        break
+                
+                if tool_server is None:
+                    raise ValueError(f"Tool {tool_name} not found in any connected server")
+                
+                result = await self.sessions[tool_server].call_tool(tool_name, tool_args)
                 tool_results.append({"call": tool_name, "result": result})
                 final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
 
@@ -233,36 +246,50 @@ class MCPClient:
                 print(f"\nError: {str(e)}")
                 continue
 
-    async def cleanup(self):
-        """Clean up resources and shutdown server"""
-        logger.info("Cleaning up resources...")
-        self.connected = False
+    async def cleanup_server(self, server_name: str):
+        """Clean up resources for a specific server"""
+        logger.info(f"Cleaning up resources for {server_name}...")
+        self.connected_servers.discard(server_name)
         
-        if self.session:
+        if server_name in self.sessions:
             try:
-                await self.exit_stack.aclose()
+                session = self.sessions[server_name]
+                del self.sessions[server_name]
+                await session.close()
             except Exception as e:
-                logger.error(f"Error during cleanup: {str(e)}")
+                logger.error(f"Error during cleanup of {server_name}: {str(e)}")
         
-        if self.server_process:
+        if server_name in self.server_processes:
             try:
-                self.server_process.terminate()
+                process = self.server_processes[server_name]
+                process.terminate()
                 await asyncio.sleep(1)  # Give the process time to terminate gracefully
-                if self.server_process.poll() is None:
-                    self.server_process.kill()  # Force kill if still running
+                if process.poll() is None:
+                    process.kill()  # Force kill if still running
+                del self.server_processes[server_name]
             except Exception as e:
-                logger.error(f"Error terminating server process: {str(e)}")
+                logger.error(f"Error terminating server process for {server_name}: {str(e)}")
+
+    async def cleanup(self):
+        """Clean up resources and shutdown all servers"""
+        logger.info("Cleaning up all resources...")
+        for server_name in list(self.connected_servers):
+            await self.cleanup_server(server_name)
+        await self.exit_stack.aclose()
 
 async def main():
-    if len(sys.argv) < 2:
-        logger.error("Usage: python client.py <path_to_server_script>")
-        sys.exit(1)
-        
     client = MCPClient()
     try:
-        connected = await client.connect_to_server(sys.argv[1])
-        if not connected:
-            logger.error("Failed to establish connection to server")
+        # Connect to configured servers
+        for server_name in client.config['mcpServers'].keys():
+            connected = await client.connect_to_server(server_name)
+            if not connected:
+                logger.error(f"Failed to establish connection to {server_name}")
+                continue
+        
+        
+        if not client.connected_servers:
+            logger.error("No servers connected")
             sys.exit(1)
             
         await client.chat_loop()

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mcp-installer": {
+      "command": "npx",
+      "args": ["-y", "@anaisbetts/mcp-installer"]
+    },
+    "needle-mcp": {
+      "command": "uv",
+      "args": ["--directory", "needle-mcp", "run", "needle-mcp"]
+    }
+  }
+}
