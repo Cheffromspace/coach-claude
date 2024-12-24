@@ -1,5 +1,6 @@
 import logging
 import json
+import asyncio
 from typing import Dict, List, Optional
 from anthropic import Anthropic
 
@@ -13,9 +14,44 @@ class QueryProcessor:
         self.server_manager = server_manager
         self.anthropic = anthropic_client or Anthropic()
         self.max_iterations = 10
+        self.initialized = False
+        self.api_timeout = 30  # timeout for Anthropic API calls in seconds
+        
+    async def initialize(self, timeout: int = 30) -> bool:
+        """Initialize the query processor and verify connections."""
+        logger.info("Initializing QueryProcessor...")
+        try:
+            # Add timeout for initialization
+            await asyncio.wait_for(
+                self._initialize(),
+                timeout=timeout
+            )
+            self.initialized = True
+            logger.info("QueryProcessor initialization completed successfully")
+            return True
+        except asyncio.TimeoutError:
+            logger.error(f"QueryProcessor initialization timed out after {timeout} seconds")
+            return False
+        except Exception as e:
+            logger.error(f"QueryProcessor initialization failed: {str(e)}", exc_info=True)
+            return False
+            
+    async def _initialize(self):
+        """Internal initialization method."""
+        # Verify server manager is working
+        logger.info("Verifying server connections...")
+        await self.server_manager.check_servers_health()
+        
+        # Test tool retrieval
+        logger.info("Testing tool retrieval...")
+        tools = await self.server_manager.get_all_tools()
+        if not tools:
+            raise RuntimeError("No tools available from connected servers")
+        logger.info(f"Found {len(tools)} available tools")
 
     async def process_query(self, query: str, context: Optional[List[Dict]] = None, health_check_interval: int = 60) -> str:
         """Process a query using Claude and available tools from all connected servers."""
+        logger.info("Starting query processing")
         messages = context if context else []
         messages.append({
             "role": "user",
@@ -23,18 +59,33 @@ class QueryProcessor:
         })
 
         # Check server health
+        logger.info("Checking server health...")
         await self.server_manager.check_servers_health(health_check_interval)
         
         # Get available tools
+        logger.info("Getting available tools...")
         available_tools = await self.server_manager.get_all_tools()
+        logger.info(f"Found {len(available_tools)} available tools")
 
-        # Initial Claude API call
-        response = await self.anthropic.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1000,
-            messages=messages,
-            tools=available_tools
-        )
+        # Initial Claude API call with timeout
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.anthropic.messages.create,
+                    model="claude-3-5-sonnet-20241022",
+                    max_tokens=1000,
+                    messages=messages,
+                    tools=available_tools
+                ),
+                timeout=self.api_timeout
+            )
+        except asyncio.TimeoutError:
+            error_msg = f"Anthropic API call timed out after {self.api_timeout} seconds"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        except Exception as e:
+            logger.error(f"Anthropic API call failed: {str(e)}", exc_info=True)
+            raise
 
         # Process response and handle tool calls in a loop
         final_text = []
@@ -110,12 +161,31 @@ class QueryProcessor:
                 
             # Make another API call with updated context if there were tool calls
             if has_tool_call:
-                response = await self.anthropic.messages.create(
-                    model="claude-3-5-sonnet-20241022",
-                    max_tokens=1000,
-                    messages=messages,
-                    tools=available_tools
-                )
+                try:
+                    response = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            self.anthropic.messages.create,
+                            model="claude-3-5-sonnet-20241022",
+                            max_tokens=1000,
+                            messages=messages,
+                            tools=available_tools
+                        ),
+                        timeout=self.api_timeout
+                    )
+                except asyncio.TimeoutError:
+                    error_msg = f"Anthropic API call timed out after {self.api_timeout} seconds"
+                    logger.error(error_msg)
+                    error_output = f"\n[Error]\n{error_msg}"
+                    print(error_output)
+                    final_text.append(error_output)
+                    break
+                except Exception as e:
+                    error_msg = f"Anthropic API call failed: {str(e)}"
+                    logger.error(error_msg, exc_info=True)
+                    error_output = f"\n[Error]\n{error_msg}"
+                    print(error_output)
+                    final_text.append(error_output)
+                    break
         
         if iteration >= self.max_iterations:
             warning = "\n[Warning]\nReached maximum number of tool call iterations."

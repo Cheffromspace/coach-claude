@@ -11,5 +11,8 @@
   "license": "ISC",
   "devDependencies": {
     "@anaisbetts/mcp-installer": "^0.5.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
   }
 }

@@ -90,7 +90,9 @@ class MCPChatInterface:
         
         try:
             while True:
-                message = input("> ")
+                # Use asyncio.get_event_loop().run_in_executor for non-blocking input
+                loop = asyncio.get_event_loop()
+                message = await loop.run_in_executor(None, lambda: input("> "))
                 
                 if message.strip().lower() == 'quit':
                     break

@@ -87,17 +87,102 @@ class ServerManager:
                 )
                 
                 logger.info(f"Connecting to server {server_name}...")
-                stdio, write = await self.exit_stack.enter_async_context(stdio_client(server_params))
-                
+                try:
+                    logger.debug(f"Starting stdio client for {server_name}...")
+                    stdio, write = await self.exit_stack.enter_async_context(stdio_client(server_params))
+                    logger.debug(f"Stdio client started successfully for {server_name}")
+                except Exception as e:
+                    logger.error(f"Failed to start stdio client for {server_name}: {str(e)}", exc_info=True)
+                    return False
+
                 logger.info(f"Initializing session for {server_name}...")
                 session = ClientSession(stdio, write)
-                session.connected = True
-                await session.initialize()
                 
+                # Enter session context
+                session = await self.exit_stack.enter_async_context(session)
+                logger.debug(f"[{server_name}] Entered session context")
+
+                # Add detailed message logging
+                async def log_stdio_message(msg):
+                    logger.debug(f"[{server_name}] Received message: {msg}")
+                    if isinstance(msg, dict):
+                        logger.debug(f"[{server_name}] Message type: {msg.get('type')}")
+                        if msg.get('type') == 'error':
+                            logger.error(f"[{server_name}] Server error: {msg.get('error')}")
+                        if msg.get('type') == 'initialize':
+                            logger.debug(f"[{server_name}] Initialize response: {msg}")
+                stdio.on_message = log_stdio_message
+                
+                # Log outgoing messages
+                original_write = write
+                async def logged_write(data):
+                    try:
+                        logger.debug(f"[{server_name}] Sending message: {data}")
+                        await original_write(data)
+                        logger.debug(f"[{server_name}] Message sent successfully")
+                    except Exception as e:
+                        logger.error(f"[{server_name}] Failed to send message: {str(e)}")
+                        raise
+                write = logged_write
+
+                # Add receive hook to stdio
+                original_receive = stdio.receive
+                async def logged_receive():
+                    msg = await original_receive()
+                    if msg:
+                        logger.debug(f"[{server_name}] Raw received: {msg}")
+                    return msg
+                stdio.receive = logged_receive
+                
+                # Add 30 second timeout for session initialization
+                try:
+                    logger.debug(f"Starting session initialization for {server_name}...")
+                    
+                    # Create initialization task
+                    init_task = asyncio.create_task(session.initialize())
+                    logger.debug(f"[{server_name}] Created initialization task")
+                    
+                    # Wait for initialization with timeout
+                    try:
+                        await asyncio.wait_for(init_task, timeout=30)
+                        logger.info(f"Session initialized for {server_name}")
+                    except asyncio.TimeoutError:
+                        logger.error(f"[{server_name}] Session initialization timed out")
+                        if not init_task.done():
+                            init_task.cancel()
+                            try:
+                                await init_task
+                            except asyncio.CancelledError:
+                                logger.debug(f"[{server_name}] Initialization task cancelled")
+                        raise
+                except asyncio.TimeoutError:
+                    logger.error(f"Session initialization timed out for {server_name}")
+                    return False
+                except Exception as e:
+                    logger.error(f"Session initialization failed for {server_name}: {str(e)}")
+                    return False
+                
+                # Add 5 second timeout for initial tool listing
                 logger.info(f"Getting available tools from {server_name}...")
-                response = await session.list_tools()
-                tools = response.tools
-                logger.info(f"Connected to server {server_name} with tools: {[tool.name for tool in tools]}")
+                try:
+                    response = await asyncio.wait_for(
+                        session.list_tools(),
+                        timeout=5
+                    )
+                    tools = response.tools
+                    tool_names = [tool.name for tool in tools]
+                    logger.info(f"Connected to server {server_name} with tools: {tool_names}")
+                    
+                    if not tools:
+                        logger.warning(f"Server {server_name} reported no available tools")
+                except asyncio.TimeoutError:
+                    logger.error(f"Timeout getting initial tools from {server_name}")
+                    await self.cleanup_server(server_name)
+                    return False
+                except Exception as e:
+                    logger.error(f"Error getting initial tools from {server_name}: {str(e)}", exc_info=True)
+                    await self.cleanup_server(server_name)
+                    return False
                 
                 self.servers[server_name] = session
                 self.connected_servers.add(server_name)
@@ -127,21 +212,61 @@ class ServerManager:
         """Collect tools from all connected servers"""
         available_tools = []
         for server_name, session in self.servers.items():
-            response = await session.list_tools()
-            server_tools = [{ 
-                "name": tool.name,
-                "description": tool.description,
-                "input_schema": tool.inputSchema
-            } for tool in response.tools]
-            available_tools.extend(server_tools)
+            logger.info(f"Getting tools from server: {server_name}")
+            try:
+                # Add 5 second timeout for tool listing
+                response = await asyncio.wait_for(
+                    session.list_tools(),
+                    timeout=5
+                )
+                server_tools = [{ 
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.inputSchema
+                } for tool in response.tools]
+                available_tools.extend(server_tools)
+                logger.info(f"Successfully retrieved {len(server_tools)} tools from {server_name}")
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout getting tools from {server_name}")
+                # Don't fail completely, just skip this server
+                continue
+            except Exception as e:
+                logger.error(f"Error getting tools from {server_name}: {str(e)}", exc_info=True)
+                # Don't fail completely, just skip this server
+                continue
         return available_tools
 
     async def call_tool(self, tool_name: str, tool_args: dict) -> Optional[dict]:
         """Call a tool on the appropriate server"""
         for server_name, session in self.servers.items():
-            tools_response = await session.list_tools()
-            if any(tool.name == tool_name for tool in tools_response.tools):
-                return await session.call_tool(tool_name, tool_args)
+            try:
+                # Add 5 second timeout for tool listing
+                tools_response = await asyncio.wait_for(
+                    session.list_tools(),
+                    timeout=5
+                )
+                if any(tool.name == tool_name for tool in tools_response.tools):
+                    logger.info(f"Calling tool {tool_name} on server {server_name}")
+                    try:
+                        # Add 30 second timeout for tool execution
+                        result = await asyncio.wait_for(
+                            session.call_tool(tool_name, tool_args),
+                            timeout=30
+                        )
+                        logger.info(f"Successfully called tool {tool_name}")
+                        return result
+                    except asyncio.TimeoutError:
+                        logger.error(f"Timeout calling tool {tool_name} on {server_name}")
+                        continue
+                    except Exception as e:
+                        logger.error(f"Error calling tool {tool_name} on {server_name}: {str(e)}", exc_info=True)
+                        continue
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout listing tools from {server_name}")
+                continue
+            except Exception as e:
+                logger.error(f"Error listing tools from {server_name}: {str(e)}", exc_info=True)
+                continue
         return None
 
     async def cleanup_server(self, server_name: str):

@@ -6,9 +6,14 @@ logger = logging.getLogger(__name__)
 class MessageProcessor:
     """Handles MCP protocol messages for tool and resource requests."""
     
-    def __init__(self, server_manager):
-        """Initialize MessageProcessor with a server manager."""
+    def __init__(self, server_manager, query_processor):
+        """Initialize MessageProcessor with server manager and query processor."""
         self._server_manager = server_manager
+        self._query_processor = query_processor
+
+    async def process_query(self, query: str, context=None):
+        """Process a general query using the query processor."""
+        return await self._query_processor.process_query(query, context)
 
     async def handle_message(self, message: Dict) -> Dict:
         """Handle incoming MCP messages (tool requests and resource requests)."""
