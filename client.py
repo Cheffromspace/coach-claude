@@ -220,31 +220,11 @@ class MCPClient:
 
         return "\n".join(final_text)
 
-    async def chat_loop(self):
-        """Run an interactive chat loop"""
-        print("\nMCP Client Started!")
-        print("Type your queries or 'quit' to exit.")
-        
-        while True:
-            try:
-                query = input("\nQuery: ").strip()
-                
-                if query.lower() == 'quit':
-                    break
-                    
-                if not query:
-                    continue
-                    
-                response = await self.process_query(query)
-                print("\n" + response)
-                    
-            except EOFError:
-                break
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                print(f"\nError: {str(e)}")
-                continue
+    async def start_chat(self):
+        """Start the enhanced chat interface"""
+        from mcp_chat import MCPChatInterface
+        chat = MCPChatInterface(self)
+        await chat.run()
 
     async def cleanup_server(self, server_name: str):
         """Clean up resources for a specific server"""
@@ -292,7 +272,7 @@ async def main():
             logger.error("No servers connected")
             sys.exit(1)
             
-        await client.chat_loop()
+        await client.start_chat()
     except KeyboardInterrupt:
         logger.info("Received shutdown signal")
     except Exception as e:
