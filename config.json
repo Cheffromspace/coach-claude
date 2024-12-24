@@ -4,9 +4,9 @@
       "command": "npx",
       "args": ["-y", "@anaisbetts/mcp-installer"]
     },
-    "needle-mcp": {
-      "command": "uv",
-      "args": ["--directory", "needle-mcp", "run", "needle-mcp"]
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
     }
   }
 }

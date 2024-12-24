@@ -1,23 +1,23 @@
 # AI Coaching System Task List
 
 ## Project Setup
-- [ ] Initialize project repository
-  - [ ] Set up TypeScript/Node.js project structure
-  - [ ] Configure TSConfig and build tools
-  - [ ] Set up testing framework (Jest)
+- [x] Initialize project repository
+  - [x] Set up Python project structure
+  - [x] Configure basic project tools (pyproject.toml)
+  - [ ] Set up testing framework
   - [ ] Configure linting and formatting
   - [ ] Set up CI pipeline basics
-- [ ] Set up documentation
-  - [ ] Create architecture documentation
+- [x] Set up documentation
+  - [x] Create architecture documentation
   - [ ] Set up API documentation generation
   - [ ] Create development guidelines
 
 ## Core MCP Integration
-- [ ] Set up MCP client framework
-  - [ ] Implement base MCP client class
-  - [ ] Add connection management
-  - [ ] Implement error handling
-  - [ ] Add logging system
+- [x] Set up MCP client framework
+  - [x] Implement base MCP client class
+  - [x] Add connection management
+  - [x] Implement error handling
+  - [x] Add logging system
 - [ ] Create tool interfaces
   - [ ] Define base tool interface
   - [ ] Implement tool registration system
@@ -56,12 +56,12 @@
   - [ ] Add result processing
 
 ## Memory Servers (MCP)
-- [ ] Knowledge Graph Server
-  - [ ] Set up basic graph database
-  - [ ] Implement MCP server wrapper
-  - [ ] Create CRUD operations
-  - [ ] Add query capabilities
-  - [ ] Implement relationship management
+- [x] Knowledge Graph Server
+  - [x] Set up basic graph database (using memory server)
+  - [x] Implement MCP server wrapper (configured in config.json)
+  - [x] Create CRUD operations (create_entities, read_graph, delete_entities)
+  - [x] Add query capabilities (search_nodes, open_nodes)
+  - [x] Implement relationship management (create_relations, delete_relations)
 - [ ] Vector Store Server
   - [ ] Set up vector database
   - [ ] Implement MCP server wrapper
