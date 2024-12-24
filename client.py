@@ -219,11 +219,19 @@ class MCPClient:
                 if query.lower() == 'quit':
                     break
                     
+                if not query:
+                    continue
+                    
                 response = await self.process_query(query)
                 print("\n" + response)
                     
+            except EOFError:
+                break
+            except KeyboardInterrupt:
+                break
             except Exception as e:
                 print(f"\nError: {str(e)}")
+                continue
 
     async def cleanup(self):
         """Clean up resources and shutdown server"""
