@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class ServerManager:
     def __init__(self, config: Dict, exit_stack: AsyncExitStack):
-        self.sessions: Dict[str, ClientSession] = {}
+        self.servers: Dict[str, ClientSession] = {}
         self.exit_stack = exit_stack
         self.server_processes = {}
         self.last_health_checks = {}
@@ -21,6 +21,14 @@ class ServerManager:
         self.max_retries = 3
         self.retry_delay = 1
         self.config = config
+
+    async def start_server(self, server_name: str) -> None:
+        """Start and connect to an MCP server."""
+        if server_name not in self.config['mcpServers']:
+            raise KeyError(f"Server '{server_name}' not found in configuration")
+            
+        if not await self.connect_to_server(server_name):
+            raise ConnectionError(f"Failed to connect to server '{server_name}'")
 
     def _get_server_env(self, command: str) -> dict:
         """Get environment variables for server command"""
@@ -35,11 +43,18 @@ class ServerManager:
     async def _check_server_health(self, server_name: str) -> bool:
         """Check if a server is healthy by attempting to list tools"""
         try:
-            if server_name not in self.sessions:
+            if server_name not in self.servers:
                 return False
-            await self.sessions[server_name].list_tools()
+            # Add 5 second timeout for health check
+            await asyncio.wait_for(
+                self.servers[server_name].list_tools(),
+                timeout=5
+            )
             self.last_health_checks[server_name] = datetime.now()
             return True
+        except asyncio.TimeoutError:
+            logger.warning(f"Health check timed out for {server_name}")
+            return False
         except Exception as e:
             logger.warning(f"Health check failed for {server_name}: {str(e)}")
             return False
@@ -72,11 +87,11 @@ class ServerManager:
                 )
                 
                 logger.info(f"Connecting to server {server_name}...")
-                stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
-                stdio, write = stdio_transport
+                stdio, write = await self.exit_stack.enter_async_context(stdio_client(server_params))
                 
                 logger.info(f"Initializing session for {server_name}...")
-                session = await self.exit_stack.enter_async_context(ClientSession(stdio, write))
+                session = ClientSession(stdio, write)
+                session.connected = True
                 await session.initialize()
                 
                 logger.info(f"Getting available tools from {server_name}...")
@@ -84,7 +99,7 @@ class ServerManager:
                 tools = response.tools
                 logger.info(f"Connected to server {server_name} with tools: {[tool.name for tool in tools]}")
                 
-                self.sessions[server_name] = session
+                self.servers[server_name] = session
                 self.connected_servers.add(server_name)
                 self.last_health_checks[server_name] = datetime.now()
                 return True
@@ -93,7 +108,7 @@ class ServerManager:
                 logger.error(f"Connection attempt {retry_count + 1} failed: {str(e)}")
                 retry_count += 1
                 
-                if server_name in self.sessions:
+                if server_name in self.servers:
                     await self.cleanup_server(server_name)
         
         logger.error(f"Failed to connect after {retry_count} attempts")
@@ -110,7 +125,7 @@ class ServerManager:
     async def get_all_tools(self) -> list:
         """Collect tools from all connected servers"""
         available_tools = []
-        for server_name, session in self.sessions.items():
+        for server_name, session in self.servers.items():
             response = await session.list_tools()
             server_tools = [{ 
                 "name": tool.name,
@@ -122,7 +137,7 @@ class ServerManager:
 
     async def call_tool(self, tool_name: str, tool_args: dict) -> Optional[dict]:
         """Call a tool on the appropriate server"""
-        for server_name, session in self.sessions.items():
+        for server_name, session in self.servers.items():
             tools_response = await session.list_tools()
             if any(tool.name == tool_name for tool in tools_response.tools):
                 return await session.call_tool(tool_name, tool_args)
@@ -133,9 +148,9 @@ class ServerManager:
         logger.info(f"Cleaning up resources for {server_name}...")
         self.connected_servers.discard(server_name)
         
-        if server_name in self.sessions:
+        if server_name in self.servers:
             try:
-                del self.sessions[server_name]
+                del self.servers[server_name]
             except Exception as e:
                 logger.error(f"Error during cleanup of {server_name}: {str(e)}")
         
@@ -155,3 +170,12 @@ class ServerManager:
         logger.info("Cleaning up all resources...")
         for server_name in list(self.connected_servers):
             await self.cleanup_server(server_name)
+
+    async def stop_server(self, server_name: str):
+        """Stop a running server."""
+        await self.cleanup_server(server_name)
+
+    async def restart_server(self, server_name: str):
+        """Restart a server by stopping and starting it again."""
+        await self.stop_server(server_name)
+        await self.start_server(server_name)
