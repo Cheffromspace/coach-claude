@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-
+from mcp_chat import MCPChatInterface
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
@@ -136,14 +136,19 @@ class MCPClient:
         logger.error(f"Failed to connect after {retry_count} attempts")
         return False
 
-    async def process_query(self, query: str, health_check_interval: int = 60) -> str:
-        """Process a query using Claude and available tools from all connected servers"""
-        messages = [
-            {
-                "role": "user",
-                "content": query
-            }
-        ]
+    async def process_query(self, query: str, context=None, health_check_interval: int = 60) -> str:
+        """Process a query using Claude and available tools from all connected servers
+        
+        Args:
+            query: The user's query
+            context: List of previous messages in the conversation
+            health_check_interval: Interval in seconds between server health checks
+        """
+        messages = context if context else []
+        messages.append({
+            "role": "user",
+            "content": query
+        })
 
         # Perform health check for all servers if needed
         for server_name in self.connected_servers:
@@ -171,58 +176,107 @@ class MCPClient:
             tools=available_tools
         )
 
-        # Process response and handle tool calls
-        tool_results = []
+        # Process response and handle tool calls in a loop
         final_text = []
-
-        for content in response.content:
-            if content.type == 'text':
-                final_text.append(content.text)
-            elif content.type == 'tool_use':
-                tool_name = content.name
-                tool_args = content.input
+        max_iterations = 10  # Prevent infinite loops
+        iteration = 0
+        
+        # Add initial thinking
+        if response.content and response.content[0].type == 'text':
+            initial_thinking = f"[Initial Thinking]\n{response.content[0].text}\n"
+            print(initial_thinking)
+            final_text.append(initial_thinking)
+        
+        while iteration < max_iterations:
+            iteration += 1
+            has_tool_call = False
+            current_text = []
+            
+            iteration_header = f"\n[Iteration {iteration}]"
+            print(iteration_header)
+            current_text.append(iteration_header)
+            
+            for content in response.content:
+                if content.type == 'text':
+                    thinking = f"\n[Thinking]\n{content.text}"
+                    print(thinking)
+                    current_text.append(thinking)
+                elif content.type == 'tool_use':
+                    has_tool_call = True
+                    tool_name = content.name
+                    tool_args = content.input
+                    
+                    # Find which server has the requested tool
+                    tool_server = None
+                    for server_name, session in self.sessions.items():
+                        tools_response = await session.list_tools()
+                        if any(tool.name == tool_name for tool in tools_response.tools):
+                            tool_server = server_name
+                            break
+                    
+                    if tool_server is None:
+                        error_msg = f"Tool {tool_name} not found in any connected server"
+                        error_output = f"\n[Error]\n{error_msg}"
+                        print(error_output)
+                        current_text.append(error_output)
+                        logger.error(error_msg)
+                        continue
+                    
+                    try:
+                        # Log tool usage
+                        tool_call_desc = f"\n[Tool Call]\nTool: {tool_name}\nArguments: {json.dumps(tool_args, indent=2)}"
+                        print(tool_call_desc)
+                        current_text.append(tool_call_desc)
+                        
+                        result = await self.sessions[tool_server].call_tool(tool_name, tool_args)
+                        
+                        # Log tool result
+                        result_content = result.content[0].text if result.content and len(result.content) > 0 else 'No content'
+                        tool_result_desc = f"\n[Tool Result]\n{result_content}"
+                        print(tool_result_desc)
+                        current_text.append(tool_result_desc)
+                        
+                        # Add to conversation context
+                        messages.append({
+                            "role": "assistant",
+                            "content": f"Using tool: {tool_name} with arguments: {json.dumps(tool_args)}"
+                        })
+                        messages.append({
+                            "role": "user",
+                            "content": f"Tool result: {result_content}"
+                        })
+                    except Exception as e:
+                        error_msg = f"Error executing tool {tool_name}: {str(e)}"
+                        error_output = f"\n[Error]\n{error_msg}"
+                        print(error_output)
+                        current_text.append(error_output)
+                        logger.error(error_msg)
+            
+            # Add current text to final output
+            final_text.extend(current_text)
+            
+            # If no tool calls were made, we're done
+            if not has_tool_call:
+                break
                 
-                # Execute tool call
-                # Find which server has the requested tool
-                tool_server = None
-                for server_name, session in self.sessions.items():
-                    tools_response = await session.list_tools()
-                    if any(tool.name == tool_name for tool in tools_response.tools):
-                        tool_server = server_name
-                        break
-                
-                if tool_server is None:
-                    raise ValueError(f"Tool {tool_name} not found in any connected server")
-                
-                result = await self.sessions[tool_server].call_tool(tool_name, tool_args)
-                tool_results.append({"call": tool_name, "result": result})
-                final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
-
-                # Continue conversation with tool results
-                if hasattr(content, 'text') and content.text:
-                    messages.append({
-                      "role": "assistant",
-                      "content": content.text
-                    })
-                messages.append({
-                    "role": "user", 
-                    "content": result.content
-                })
-
-                # Get next response from Claude
+            # Make another API call with updated context if there were tool calls
+            if has_tool_call:
                 response = self.anthropic.messages.create(
                     model="claude-3-5-sonnet-20241022",
                     max_tokens=1000,
                     messages=messages,
+                    tools=available_tools
                 )
-
-                final_text.append(response.content[0].text)
-
+        
+        if iteration >= max_iterations:
+            warning = "\n[Warning]\nReached maximum number of tool call iterations."
+            print(warning)
+            final_text.append(warning)
+            
         return "\n".join(final_text)
 
     async def start_chat(self):
         """Start the enhanced chat interface"""
-        from mcp_chat import MCPChatInterface
         chat = MCPChatInterface(self)
         await chat.run()
 
@@ -233,9 +287,8 @@ class MCPClient:
         
         if server_name in self.sessions:
             try:
-                session = self.sessions[server_name]
                 del self.sessions[server_name]
-                await session.close()
+                # MCP sessions don't need explicit closing - they're managed by the exit stack
             except Exception as e:
                 logger.error(f"Error during cleanup of {server_name}: {str(e)}")
         
@@ -267,12 +320,13 @@ async def main():
                 logger.error(f"Failed to establish connection to {server_name}")
                 continue
         
-        
         if not client.connected_servers:
             logger.error("No servers connected")
             sys.exit(1)
             
-        await client.start_chat()
+        # Start chat interface with fresh history
+        chat_interface = MCPChatInterface(client, load_existing_history=False)
+        await chat_interface.run()
     except KeyboardInterrupt:
         logger.info("Received shutdown signal")
     except Exception as e:
