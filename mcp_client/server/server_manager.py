@@ -115,8 +115,9 @@ class ServerManager:
         return False
 
     async def check_servers_health(self, health_check_interval: int = 60) -> None:
-        """Check health of all connected servers"""
-        for server_name in self.connected_servers:
+        """Check health of all connected servers in a deterministic order"""
+        # Convert to sorted list for deterministic order
+        for server_name in sorted(self.connected_servers):
             if (server_name not in self.last_health_checks or 
                 (datetime.now() - self.last_health_checks[server_name]) > timedelta(seconds=health_check_interval)):
                 if not await self._check_server_health(server_name):
@@ -148,22 +149,38 @@ class ServerManager:
         logger.info(f"Cleaning up resources for {server_name}...")
         self.connected_servers.discard(server_name)
         
-        if server_name in self.servers:
+        # Always attempt to delete from servers dict if it exists
+        if hasattr(self, 'servers'):
             try:
                 del self.servers[server_name]
             except Exception as e:
                 logger.error(f"Error during cleanup of {server_name}: {str(e)}")
         
         if server_name in self.server_processes:
+            process = self.server_processes[server_name]
             try:
-                process = self.server_processes[server_name]
-                process.terminate()
-                await asyncio.sleep(1)
-                if process.poll() is None:
-                    process.kill()
-                del self.server_processes[server_name]
+                try:
+                    # First try to terminate gracefully
+                    await process.terminate()
+                    await asyncio.sleep(0.1)
+                    
+                    # Check if process is still running - poll() is synchronous
+                    poll_result = process.poll()
+                    if poll_result is None:
+                        process.kill()  # kill() is also synchronous
+                        await asyncio.sleep(0.05)
+                except Exception as e:
+                    logger.error(f"Error during process cleanup for {server_name}: {str(e)}")
+                    # If terminate fails, ensure we try to kill
+                    try:
+                        await process.kill()
+                        await asyncio.sleep(0.05)
+                    except Exception as e:
+                        logger.error(f"Error killing server process for {server_name}: {str(e)}")
             except Exception as e:
-                logger.error(f"Error terminating server process for {server_name}: {str(e)}")
+                logger.error(f"Error during process cleanup for {server_name}: {str(e)}")
+            # Always remove the process from server_processes, even if termination fails
+            del self.server_processes[server_name]
 
     async def cleanup_all(self):
         """Clean up all server resources"""
