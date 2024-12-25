@@ -2,6 +2,7 @@ import logging
 import json
 import asyncio
 from typing import Dict, List, Optional
+import os
 from anthropic import Anthropic
 
 logger = logging.getLogger(__name__)
@@ -12,7 +13,10 @@ class QueryProcessor:
     def __init__(self, server_manager, anthropic_client: Optional[Anthropic] = None):
         """Initialize QueryProcessor with server manager and optional Anthropic client."""
         self.server_manager = server_manager
-        self.anthropic = anthropic_client or Anthropic()
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY environment variable is required")
+        self.anthropic = anthropic_client or Anthropic(api_key=api_key)
         self.max_iterations = 10
         self.initialized = False
         self.api_timeout = 30  # timeout for Anthropic API calls in seconds
@@ -69,15 +73,11 @@ class QueryProcessor:
 
         # Initial Claude API call with timeout
         try:
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self.anthropic.messages.create,
-                    model="claude-3-5-sonnet-20241022",
-                    max_tokens=1000,
-                    messages=messages,
-                    tools=available_tools
-                ),
-                timeout=self.api_timeout
+            response = self.anthropic.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1000,
+                messages=messages,
+                tools=available_tools
             )
         except asyncio.TimeoutError:
             error_msg = f"Anthropic API call timed out after {self.api_timeout} seconds"
@@ -131,11 +131,11 @@ class QueryProcessor:
                             continue
                         
                         # Log tool result
-                        result_content = result.content[0].text if result.content and len(result.content) > 0 else 'No content'
+                        result_content = json.dumps(result, indent=2)
                         tool_result_desc = f"\n[Tool Result]\n{result_content}"
                         print(tool_result_desc)
                         current_text.append(tool_result_desc)
-                        
+o                        
                         # Add to conversation context
                         messages.append({
                             "role": "assistant",
@@ -162,15 +162,11 @@ class QueryProcessor:
             # Make another API call with updated context if there were tool calls
             if has_tool_call:
                 try:
-                    response = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            self.anthropic.messages.create,
-                            model="claude-3-5-sonnet-20241022",
-                            max_tokens=1000,
-                            messages=messages,
-                            tools=available_tools
-                        ),
-                        timeout=self.api_timeout
+                    response = self.anthropic.messages.create(
+                        model="claude-3-5-sonnet-20241022",
+                        max_tokens=1000,
+                        messages=messages,
+                        tools=available_tools
                     )
                 except asyncio.TimeoutError:
                     error_msg = f"Anthropic API call timed out after {self.api_timeout} seconds"

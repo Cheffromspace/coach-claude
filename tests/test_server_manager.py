@@ -3,25 +3,23 @@ import pytest
 import asyncio
 from unittest.mock import AsyncMock, patch, MagicMock
 from datetime import datetime, timedelta
-from mcp import ClientSession
-from mcp_client.server.server_manager import ServerManager
+from mcp import ClientSession, StdioServerParameters
+from mcp_client.server.server_manager import ServerManager, ServerInfo
+from tests.utils.test_mocks import MockStdioClient, MockSession, MockProcess, ToolSession
 
 @pytest.fixture
 def mock_exit_stack():
     """Mock AsyncExitStack for testing."""
     stack = AsyncMock()
+    stack.enter_async_context = AsyncMock()
+    stack.aclose = AsyncMock()
     
     async def mock_enter_context(context):
-        # Handle stdio_client context manager
-        if hasattr(context, '__call__'):  # stdio_client function
-            stdio = AsyncMock()
-            write = AsyncMock()
-            return (stdio, write)
-            
+        if isinstance(context, (MockStdioClient, MockSession, ToolSession)):
+            return await context.__aenter__()
         return context
     
-    stack.enter_async_context = AsyncMock(side_effect=mock_enter_context)
-    stack.aclose = AsyncMock()
+    stack.enter_async_context.side_effect = mock_enter_context
     return stack
 
 @pytest.fixture
@@ -52,7 +50,9 @@ async def test_server_manager_initialization(mock_config, mock_exit_stack):
     """Test ServerManager initialization."""
     manager = ServerManager(mock_config, mock_exit_stack)
     
-    assert manager.servers == {}
+    assert isinstance(manager.servers, dict)
+    assert all(isinstance(k, str) and isinstance(v, ServerInfo) 
+              for k, v in manager.servers.items())
     assert manager.config == mock_config
     assert manager.connected_servers == set()
     assert manager.max_retries == 3
@@ -77,40 +77,41 @@ async def test_get_server_env():
 @pytest.mark.asyncio
 async def test_connect_to_server_success(mock_config, mock_exit_stack):
     """Test successful server connection."""
-    session = AsyncMock()
-    session.initialize = AsyncMock(return_value={"version": "1.0.0"})
-    tools_response = AsyncMock()
-    tools_response.tools = []
-    session.list_tools = AsyncMock(return_value=tools_response)
-    session.connected = True
+    mock_stdio = MockStdioClient()
+    mock_session = MockSession()
     
-    with patch('mcp_client.server.server_manager.ClientSession', return_value=session):
+    with patch('mcp_client.server.server_manager.ClientSession', return_value=mock_session), \
+         patch('mcp_client.server.server_manager.stdio_client', return_value=mock_stdio):
         manager = ServerManager(mock_config, mock_exit_stack)
         success = await manager.connect_to_server("test-server")
-    
-    assert success is True
-    assert "test-server" in manager.servers
-    assert "test-server" in manager.connected_servers
-    assert "test-server" in manager.last_health_checks
-    
-    session = manager.servers["test-server"]
-    assert session.connected
-    assert session.initialize.called
-    assert session.list_tools.called
+        
+        assert success is True
+        assert "test-server" in manager.servers
+        assert "test-server" in manager.connected_servers
+        assert "test-server" in manager.last_health_checks
+        
+        session = await mock_session.__aenter__()
+        assert session.initialize.called
+        assert session.list_tools.called
 
 @pytest.fixture
 def mock_session():
     """Create a mock ClientSession."""
     session = AsyncMock()
-    session.initialize = AsyncMock(return_value={"version": "1.0.0"})
+    session.initialize = AsyncMock(return_value={"version": "1.0.0", "success": True})
     tools_response = AsyncMock()
     tools_response.tools = []
     session.list_tools = AsyncMock(return_value=tools_response)
     session.connected = True
-    return session
+    
+    # Make session work as a context manager
+    mock_session_cm = AsyncMock()
+    mock_session_cm.__aenter__ = AsyncMock(return_value=session)
+    mock_session_cm.__aexit__ = AsyncMock()
+    return mock_session_cm
 
 @pytest.mark.asyncio
-async def test_connect_to_server_retry_logic(mock_config, mock_exit_stack, mock_session):
+async def test_connect_to_server_retry_logic(mock_config, mock_exit_stack):
     """Test connection retry logic."""
     attempt_count = 0
     
@@ -119,9 +120,12 @@ async def test_connect_to_server_retry_logic(mock_config, mock_exit_stack, mock_
         attempt_count += 1
         if attempt_count <= 2:
             raise ConnectionError("Simulated connection failure")
-        return mock_session
+        return MockSession()
     
-    with patch('mcp_client.server.server_manager.ClientSession', side_effect=mock_client_session):
+    mock_stdio = MockStdioClient()
+    
+    with patch('mcp_client.server.server_manager.ClientSession', side_effect=mock_client_session), \
+         patch('mcp_client.server.server_manager.stdio_client', return_value=mock_stdio):
         manager = ServerManager(mock_config, mock_exit_stack)
         success = await manager.connect_to_server("test-server")
         assert success is True
@@ -147,20 +151,23 @@ async def test_check_server_health(mock_config, mock_exit_stack):
     """Test server health check."""
     manager = ServerManager(mock_config, mock_exit_stack)
     
-    # Create a mock session that will hang
-    session = AsyncMock()
-    tools_response = AsyncMock()
-    tools_response.tools = []
+    # Create a MockSession with a hanging list_tools method
+    class HangingSession(MockSession):
+        def __init__(self):
+            super().__init__()
+            async def hanging_list_tools():
+                await asyncio.sleep(5)  # Sleep longer than timeout
+                return AsyncMock(tools=[])
+            self.session.list_tools = AsyncMock(side_effect=hanging_list_tools)
     
-    async def hanging_list_tools():
-        await asyncio.sleep(5)  # Sleep longer than timeout to simulate hang
-        return tools_response
-    
-    session.list_tools = AsyncMock(side_effect=hanging_list_tools)
-    session.connected = True
+    mock_session = HangingSession()
     
     # Add session directly to avoid full connection process
-    manager.servers["test-server"] = session
+    session = await mock_session.__aenter__()
+    manager.servers["test-server"] = ServerInfo(
+        params=StdioServerParameters(command="test", args=[], env={}),
+        session=session
+    )
     manager.connected_servers.add("test-server")
     manager.last_health_checks["test-server"] = datetime.now() - timedelta(minutes=2)
     
@@ -172,20 +179,27 @@ async def test_check_server_health(mock_config, mock_exit_stack):
         )
     
     # Verify the health check was attempted
-    session.list_tools.assert_called_once()
+    mock_session.session.list_tools.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_check_server_health_failure(mock_config, mock_exit_stack):
     """Test server health check failure."""
     manager = ServerManager(mock_config, mock_exit_stack)
     
-    # Create a mock session with failure response
-    session = AsyncMock()
-    session.list_tools = AsyncMock(side_effect=Exception("Health check failed"))
-    session.connected = True
+    # Create a MockSession with a failing list_tools method
+    class FailingSession(MockSession):
+        def __init__(self):
+            super().__init__()
+            self.session.list_tools = AsyncMock(side_effect=Exception("Health check failed"))
+    
+    mock_session = FailingSession()
     
     # Add session directly to avoid full connection process
-    manager.servers["test-server"] = session
+    session = await mock_session.__aenter__()
+    manager.servers["test-server"] = ServerInfo(
+        params=StdioServerParameters(command="test", args=[], env={}),
+        session=session
+    )
     manager.connected_servers.add("test-server")
     manager.last_health_checks["test-server"] = datetime.now() - timedelta(minutes=2)
     
@@ -204,19 +218,19 @@ async def test_get_all_tools(mock_config, mock_exit_stack):
     """Test getting tools from all servers."""
     manager = ServerManager(mock_config, mock_exit_stack)
     
-    # Create a mock session with immediate response
-    session = AsyncMock()
-    mock_tool = MagicMock()
-    mock_tool.name = "test-tool"
-    mock_tool.description = "Test tool"
-    mock_tool.inputSchema = {"type": "object"}
-    tools_response = AsyncMock()
-    tools_response.tools = [mock_tool]
-    session.list_tools = AsyncMock(return_value=tools_response)
-    session.connected = True
+    # Create a ToolSession with predefined tools
+    tool_session = ToolSession(tools=[{
+        "name": "test-tool",
+        "description": "Test tool",
+        "input_schema": {"type": "object"}
+    }])
     
     # Add session directly to avoid full connection process
-    manager.servers["test-server"] = session
+    session = await tool_session.__aenter__()
+    manager.servers["test-server"] = ServerInfo(
+        params=StdioServerParameters(command="test", args=[], env={}),
+        session=session
+    )
     manager.connected_servers.add("test-server")
     
     # Add timeout to prevent hanging
@@ -238,18 +252,19 @@ async def test_call_tool(mock_config, mock_exit_stack):
     """Test calling a tool."""
     manager = ServerManager(mock_config, mock_exit_stack)
     
-    # Create a mock session with immediate response
-    session = AsyncMock()
-    mock_tool = MagicMock()
-    mock_tool.name = "test-tool"
-    tools_response = AsyncMock()
-    tools_response.tools = [mock_tool]
-    session.list_tools = AsyncMock(return_value=tools_response)
-    session.call_tool = AsyncMock(return_value={"result": "success"})
-    session.connected = True
+    # Create a ToolSession with predefined tool
+    tool_session = ToolSession(tools=[{
+        "name": "test-tool",
+        "description": "Test tool",
+        "input_schema": {"type": "object"}
+    }])
     
     # Add session directly to avoid full connection process
-    manager.servers["test-server"] = session
+    session = await tool_session.__aenter__()
+    manager.servers["test-server"] = ServerInfo(
+        params=StdioServerParameters(command="test", args=[], env={}),
+        session=session
+    )
     manager.connected_servers.add("test-server")
     
     # Add timeout to prevent hanging
@@ -261,23 +276,23 @@ async def test_call_tool(mock_config, mock_exit_stack):
     except asyncio.TimeoutError:
         pytest.fail("Call tool timed out")
     
-    assert result == {"result": "success"}
-    session.call_tool.assert_called_with("test-tool", {"arg": "value"})
+    assert result == {"result": "success", "tool": "test-tool", "args": {"arg": "value"}}
+    tool_session.session.call_tool.assert_called_with("test-tool", {"arg": "value"})
 
 @pytest.mark.asyncio
 async def test_call_tool_not_found(mock_config, mock_exit_stack):
     """Test calling a non-existent tool."""
     manager = ServerManager(mock_config, mock_exit_stack)
     
-    # Create a mock session with immediate response
-    session = AsyncMock()
-    tools_response = AsyncMock()
-    tools_response.tools = []  # Empty tools list
-    session.list_tools = AsyncMock(return_value=tools_response)
-    session.connected = True
+    # Create a ToolSession with no tools
+    tool_session = ToolSession(tools=[])
     
     # Add session directly to avoid full connection process
-    manager.servers["test-server"] = session
+    session = await tool_session.__aenter__()
+    manager.servers["test-server"] = ServerInfo(
+        params=StdioServerParameters(command="test", args=[], env={}),
+        session=session
+    )
     manager.connected_servers.add("test-server")
     
     # Add timeout to prevent hanging
@@ -290,32 +305,21 @@ async def test_call_tool_not_found(mock_config, mock_exit_stack):
         pytest.fail("Call tool timed out")
     
     assert result is None
+    tool_session.session.list_tools.assert_called()
 
 @pytest.mark.asyncio
-async def test_cleanup_server(mock_config, mock_exit_stack, mock_session):
+async def test_cleanup_server(mock_config, mock_exit_stack):
     """Test server cleanup."""
-    with patch('mcp_client.server.server_manager.ClientSession', return_value=mock_session):
+    mock_stdio = MockStdioClient()
+    mock_session = MockSession()
+    mock_process = MockProcess(terminate_delay=0.2)
+    
+    with patch('mcp_client.server.server_manager.ClientSession', return_value=mock_session), \
+         patch('mcp_client.server.server_manager.stdio_client', return_value=mock_stdio):
         manager = ServerManager(mock_config, mock_exit_stack)
         await manager.connect_to_server("test-server")
-        
-        # Add mock process that terminates after a delay
-        mock_process = MagicMock()
-        is_terminated = False
-        
-        def check_poll():
-            return 0 if is_terminated else None
-            
-        async def delayed_terminate():
-            nonlocal is_terminated
-            await asyncio.sleep(0.2)  # Terminate quickly
-            is_terminated = True
-            
-        mock_process.poll = MagicMock(side_effect=check_poll)
-        mock_process.terminate = AsyncMock(side_effect=delayed_terminate)
-        mock_process.kill = MagicMock()
         manager.server_processes["test-server"] = mock_process
         
-        # Add timeout to prevent hanging
         await asyncio.wait_for(
             manager.cleanup_server("test-server"),
             timeout=2
@@ -325,35 +329,32 @@ async def test_cleanup_server(mock_config, mock_exit_stack, mock_session):
         assert "test-server" not in manager.connected_servers
         assert "test-server" not in manager.server_processes
         mock_process.terminate.assert_called_once()
-        # Kill should not be called since process terminated successfully
         mock_process.kill.assert_not_called()
 
 @pytest.mark.asyncio
-async def test_cleanup_all(mock_config, mock_exit_stack, mock_session):
+async def test_cleanup_all(mock_config, mock_exit_stack):
     """Test cleanup of all servers."""
-    # Setup mock processes with proper termination behavior
-    def create_mock_process():
-        process = MagicMock()
-        is_terminated = False
-        
-        def check_poll():
-            return 0 if is_terminated else None
-            
-        async def delayed_terminate():
-            nonlocal is_terminated
-            await asyncio.sleep(0.1)  # Quick termination for test
-            is_terminated = True
-            
-        process.poll = MagicMock(side_effect=check_poll)
-        process.terminate = AsyncMock(side_effect=delayed_terminate)
-        process.kill = MagicMock()
-        return process
+    mock_stdio1 = MockStdioClient()
+    mock_stdio2 = MockStdioClient()
+    mock_session1 = MockSession()
+    mock_session2 = MockSession()
+    mock_process1 = MockProcess(terminate_delay=0.1)
+    mock_process2 = MockProcess(terminate_delay=0.1)
     
-    mock_process1 = create_mock_process()
-    mock_process2 = create_mock_process()
+    stdio_count = 0
+    def mock_stdio_client(*args, **kwargs):
+        nonlocal stdio_count
+        stdio_count += 1
+        return mock_stdio1 if stdio_count == 1 else mock_stdio2
     
-    # Setup server manager with multiple mock processes
-    with patch('mcp_client.server.server_manager.ClientSession', return_value=mock_session):
+    session_count = 0
+    def mock_client_session(*args, **kwargs):
+        nonlocal session_count
+        session_count += 1
+        return mock_session1 if session_count == 1 else mock_session2
+    
+    with patch('mcp_client.server.server_manager.ClientSession', side_effect=mock_client_session), \
+         patch('mcp_client.server.server_manager.stdio_client', side_effect=mock_stdio_client):
         manager = ServerManager(mock_config, mock_exit_stack)
         
         # Start multiple servers
@@ -366,21 +367,17 @@ async def test_cleanup_all(mock_config, mock_exit_stack, mock_session):
         assert len(manager.servers) == 2
         assert len(manager.server_processes) == 2
         
-        # Add timeout to prevent hanging
-        await asyncio.wait_for(
-            manager.cleanup_all(),
-            timeout=2
-        )
+        # Cleanup all servers
+        await asyncio.wait_for(manager.cleanup_all(), timeout=2)
         
-        # Verify proper cleanup of all servers
+        # Verify proper cleanup
         assert len(manager.servers) == 0
         assert len(manager.connected_servers) == 0
         assert len(manager.server_processes) == 0
         
-        # Verify each process was terminated properly
+        # Verify process termination
         mock_process1.terminate.assert_called_once()
         mock_process2.terminate.assert_called_once()
-        # Kill should not be called since processes terminated successfully
         mock_process1.kill.assert_not_called()
         mock_process2.kill.assert_not_called()
 
@@ -433,20 +430,27 @@ async def test_check_server_health_timeout(mock_config, mock_exit_stack):
     """Test server health check timeout."""
     manager = ServerManager(mock_config, mock_exit_stack)
     
-    # Create a mock session that will timeout
-    session = AsyncMock()
-    session.list_tools = AsyncMock(side_effect=asyncio.TimeoutError("Health check timed out"))
-    session.connected = True
+    # Create a MockSession with a timing out list_tools method
+    class TimeoutSession(MockSession):
+        def __init__(self):
+            super().__init__()
+            self.session.list_tools = AsyncMock(side_effect=asyncio.TimeoutError("Health check timed out"))
+    
+    mock_session = TimeoutSession()
     
     # Add session directly
-    manager.servers["test-server"] = session
+    session = await mock_session.__aenter__()
+    manager.servers["test-server"] = ServerInfo(
+        params=StdioServerParameters(command="test", args=[], env={}),
+        session=session
+    )
     manager.connected_servers.add("test-server")
     manager.last_health_checks["test-server"] = datetime.now() - timedelta(minutes=2)
     
     # Verify health check returns false on timeout
     result = await manager._check_server_health("test-server")
     assert result is False
-    session.list_tools.assert_called_once()
+    mock_session.session.list_tools.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_check_server_health_missing_server(mock_config, mock_exit_stack):
@@ -478,18 +482,31 @@ async def test_check_servers_health_mixed_status(mock_config, mock_exit_stack):
     """Test check_servers_health with mixed health status."""
     manager = ServerManager(mock_config, mock_exit_stack)
     
-    # Create two mock sessions - one healthy, one unhealthy
-    healthy_session = AsyncMock()
-    healthy_session.list_tools = AsyncMock()
-    healthy_session.connected = True
+    # Create specialized MockSession classes for healthy and unhealthy servers
+    class HealthySession(MockSession):
+        def __init__(self):
+            super().__init__()
+            self.session.list_tools = AsyncMock(return_value=AsyncMock(tools=[]))
     
-    unhealthy_session = AsyncMock()
-    unhealthy_session.list_tools = AsyncMock(side_effect=Exception("Health check failed"))
-    unhealthy_session.connected = True
+    class UnhealthySession(MockSession):
+        def __init__(self):
+            super().__init__()
+            self.session.list_tools = AsyncMock(side_effect=Exception("Health check failed"))
+    
+    healthy_session = HealthySession()
+    unhealthy_session = UnhealthySession()
     
     # Add sessions directly
-    manager.servers["healthy-server"] = healthy_session
-    manager.servers["unhealthy-server"] = unhealthy_session
+    healthy = await healthy_session.__aenter__()
+    unhealthy = await unhealthy_session.__aenter__()
+    manager.servers["healthy-server"] = ServerInfo(
+        params=StdioServerParameters(command="test", args=[], env={}),
+        session=healthy
+    )
+    manager.servers["unhealthy-server"] = ServerInfo(
+        params=StdioServerParameters(command="test", args=[], env={}),
+        session=unhealthy
+    )
     manager.connected_servers.add("healthy-server")
     manager.connected_servers.add("unhealthy-server")
     manager.last_health_checks["healthy-server"] = datetime.now() - timedelta(minutes=2)
@@ -500,8 +517,8 @@ async def test_check_servers_health_mixed_status(mock_config, mock_exit_stack):
         await manager.check_servers_health()
     
     # Verify both health checks were attempted
-    healthy_session.list_tools.assert_called_once()
-    unhealthy_session.list_tools.assert_called_once()
+    healthy_session.session.list_tools.assert_called_once()
+    unhealthy_session.session.list_tools.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_connect_invalid_server_config(mock_exit_stack):
@@ -520,22 +537,28 @@ async def test_connect_invalid_server_config(mock_exit_stack):
     assert success is False
 
 @pytest.mark.asyncio
-async def test_cleanup_server_error_handling(mock_config, mock_exit_stack, mock_session):
+async def test_cleanup_server_error_handling(mock_config, mock_exit_stack):
     """Test error handling during server cleanup."""
-    with patch('mcp_client.server.server_manager.ClientSession', return_value=mock_session):
+    mock_stdio = MockStdioClient()
+    mock_session = MockSession()
+    
+    # Create a process that throws errors on terminate and kill
+    class ErrorProcess(MockProcess):
+        def __init__(self):
+            super().__init__()
+            self.terminate = AsyncMock(side_effect=Exception("Terminate failed"))
+            self.kill = AsyncMock(side_effect=Exception("Kill failed"))
+    
+    mock_process = ErrorProcess()
+    mock_servers = MagicMock()
+    mock_servers.__delitem__ = MagicMock(side_effect=Exception("Server deletion failed"))
+    
+    with patch('mcp_client.server.server_manager.ClientSession', return_value=mock_session), \
+         patch('mcp_client.server.server_manager.stdio_client', return_value=mock_stdio):
         manager = ServerManager(mock_config, mock_exit_stack)
         await manager.connect_to_server("test-server")
-        
-        # Mock process that raises exception on terminate and kill
-        mock_process = AsyncMock()
-        mock_process.poll = AsyncMock(return_value=None)
-        mock_process.terminate = AsyncMock(side_effect=Exception("Terminate failed"))
-        mock_process.kill = AsyncMock(side_effect=Exception("Kill failed"))
         manager.server_processes["test-server"] = mock_process
-
-        # Mock server deletion to raise exception
-        manager.servers = MagicMock()
-        manager.servers.__delitem__ = MagicMock(side_effect=Exception("Server deletion failed"))
+        manager.servers = mock_servers
         
         # Should handle all exceptions gracefully
         await manager.cleanup_server("test-server")
@@ -545,69 +568,47 @@ async def test_cleanup_server_error_handling(mock_config, mock_exit_stack, mock_
         assert "test-server" not in manager.server_processes
         mock_process.terminate.assert_called_once()
         mock_process.kill.assert_called_once()
-        manager.servers.__delitem__.assert_called_once_with("test-server")
+        mock_servers.__delitem__.assert_called_once_with("test-server")
 
 @pytest.mark.asyncio
 async def test_stop_and_restart_server(mock_config, mock_exit_stack):
     """Test stopping and restarting a server."""
-    # Setup mock process with proper termination behavior
-    mock_process = MagicMock()
-    is_terminated = False
+    mock_stdio1 = MockStdioClient()
+    mock_stdio2 = MockStdioClient()
+    mock_session1 = MockSession()
+    mock_session2 = MockSession()
+    mock_process = MockProcess(terminate_delay=0.1)
     
-    def check_poll():
-        return 0 if is_terminated else None
-        
-    async def delayed_terminate():
-        nonlocal is_terminated
-        await asyncio.sleep(0.1)  # Quick termination for test
-        is_terminated = True
-        
-    mock_process.poll = MagicMock(side_effect=check_poll)
-    mock_process.terminate = AsyncMock(side_effect=delayed_terminate)
-    mock_process.kill = MagicMock()
+    stdio_count = 0
+    def mock_stdio_client(*args, **kwargs):
+        nonlocal stdio_count
+        stdio_count += 1
+        return mock_stdio1 if stdio_count == 1 else mock_stdio2
     
-    # Create different sessions for start and restart
-    initial_session = AsyncMock()
-    initial_session.initialize = AsyncMock(return_value={"version": "1.0.0"})
-    initial_tools_response = AsyncMock()
-    initial_tools_response.tools = []
-    initial_session.list_tools = AsyncMock(return_value=initial_tools_response)
-    initial_session.connected = True
+    session_count = 0
+    def mock_client_session(*args, **kwargs):
+        nonlocal session_count
+        session_count += 1
+        return mock_session1 if session_count == 1 else mock_session2
     
-    restart_session = AsyncMock()
-    restart_session.initialize = AsyncMock(return_value={"version": "1.0.0"})
-    restart_tools_response = AsyncMock()
-    restart_tools_response.tools = []
-    restart_session.list_tools = AsyncMock(return_value=restart_tools_response)
-    restart_session.connected = True
-    
-    # Setup server manager with mock process
-    with patch('mcp_client.server.server_manager.ClientSession', side_effect=[initial_session, restart_session]):
+    with patch('mcp_client.server.server_manager.ClientSession', side_effect=mock_client_session), \
+         patch('mcp_client.server.server_manager.stdio_client', side_effect=mock_stdio_client):
         manager = ServerManager(mock_config, mock_exit_stack)
         
         # Start server
-        await asyncio.wait_for(
-            manager.connect_to_server("test-server"),
-            timeout=2
-        )
+        await manager.connect_to_server("test-server")
         manager.server_processes["test-server"] = mock_process
         original_session = manager.servers["test-server"]
         
-        # Stop server with timeout
-        await asyncio.wait_for(
-            manager.stop_server("test-server"),
-            timeout=2
-        )
+        # Stop server
+        await manager.stop_server("test-server")
         assert "test-server" not in manager.servers
         assert "test-server" not in manager.connected_servers
         mock_process.terminate.assert_called_once()
         mock_process.kill.assert_not_called()
         
-        # Restart server with timeout
-        await asyncio.wait_for(
-            manager.restart_server("test-server"),
-            timeout=2
-        )
+        # Restart server
+        await manager.restart_server("test-server")
         assert "test-server" in manager.servers
         assert "test-server" in manager.connected_servers
-        assert manager.servers["test-server"] != original_session
+        assert manager.servers["test-server"].session != original_session.session

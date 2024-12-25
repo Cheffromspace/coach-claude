@@ -9,7 +9,8 @@ class MCPChatInterface:
         """Initialize chat interface with an MCPClient instance"""
         self.mcp_client = mcp_client
         self.console = Console()
-        self.history_file = "chat_history.json"
+        os.makedirs('chat_history', exist_ok=True)
+        self.history_file = os.path.join('chat_history', 'chat_history.json')
         self.history = self.load_history() if load_existing_history else []
 
     def load_history(self):
@@ -25,7 +26,7 @@ class MCPChatInterface:
     def clear_history(self):
         """Clear chat history and backup the old one"""
         if os.path.exists(self.history_file):
-            backup_file = f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            backup_file = os.path.join('chat_history', f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
             os.rename(self.history_file, backup_file)
         self.history = []
         self.save_history()

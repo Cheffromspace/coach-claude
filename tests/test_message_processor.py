@@ -1,7 +1,6 @@
 """Tests for the message processor module."""
 import pytest
 from mcp_client.processing.message_processor import MessageProcessor
-from tests.utils.test_mocks import MockTransport
 from unittest.mock import MagicMock, AsyncMock
 
 @pytest.fixture

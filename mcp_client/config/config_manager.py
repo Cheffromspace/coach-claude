@@ -7,10 +7,39 @@ from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
 
 class ConfigManager:
-    def __init__(self, config_path: str = 'config.json'):
+    def __init__(self, config_path: str = 'config.json', logging_path: str = 'logging.json'):
         self.config_path = config_path
+        self.logging_path = logging_path
         load_dotenv()  # Load environment variables from .env
         self.config = self._load_config()
+        self.logging_config = self._load_logging_config()
+
+    def _load_logging_config(self) -> Dict:
+        """Load logging configuration from logging config file"""
+        try:
+            with open(self.logging_path, 'r') as f:
+                config = json.load(f)
+            return config
+        except FileNotFoundError:
+            logger.warning(f"Logging config file not found at {self.logging_path}, using defaults")
+            return {
+                'console_level': 'INFO',
+                'file_level': 'WARNING',
+                'debug_level': 'INFO',
+                'mcp_loggers': {
+                    'mcp': 'INFO',
+                    'mcp_client.server.server_manager': 'INFO',
+                    'mcp_client.server.stdio': 'WARNING',
+                    'mcp_client.server.memory': 'WARNING'
+                }
+            }
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse logging config file: {str(e)}")
+            raise ValueError("Invalid logging configuration: JSON parse error")
+
+    def get_logging_config(self) -> Dict:
+        """Get logging configuration settings"""
+        return self.logging_config
 
     def _validate_server_config(self, config: Dict) -> None:
         """Validate server configuration format and types"""

@@ -17,55 +17,35 @@ from mcp_client import (
 )
 from anthropic import Anthropic
 
-# Set up logging with debug level and debug file
-setup_logging(level=logging.DEBUG, debug_file='mcp_debug.log')
+# Set up logging
+setup_logging(debug_file='logs/mcp_debug.log')
 logger = logging.getLogger(__name__)
 
 # Add memory-specific logger
 memory_logger = logging.getLogger('mcp_client.server.memory')
 
 async def initialize_servers(server_manager, config_manager, timeout=60):
-    """Initialize all configured servers concurrently with timeout"""
+    """Initialize servers sequentially with timeout"""
     logger.info("Starting server initialization...")
     server_names = config_manager.get_server_names()
+    successful_connections = 0
     
-    async def connect_server(server_name: str):
+    for server_name in server_names:
         try:
             logger.info(f"Connecting to server {server_name}...")
             connected = await server_manager.connect_to_server(server_name, timeout=timeout)
             if connected:
                 logger.info(f"Successfully connected to {server_name}")
-                return True
-            logger.error(f"Failed to establish connection to {server_name}")
-            return False
+                successful_connections += 1
+            else:
+                logger.error(f"Failed to establish connection to {server_name}")
         except asyncio.TimeoutError:
             logger.error(f"Timeout connecting to {server_name}")
-            return False
         except Exception as e:
             logger.error(f"Error connecting to {server_name}: {str(e)}", exc_info=True)
-            return False
     
-    # Create tasks for all servers
-    connection_tasks = [
-        asyncio.create_task(connect_server(server_name))
-        for server_name in server_names
-    ]
-    
-    # Wait for all servers to initialize with timeout
-    try:
-        results = await asyncio.wait_for(
-            asyncio.gather(*connection_tasks, return_exceptions=True),
-            timeout=timeout
-        )
-        successful_connections = sum(1 for result in results if result is True)
-        logger.info(f"Server initialization completed. Connected to {successful_connections}/{len(server_names)} servers")
-        return successful_connections > 0
-    except asyncio.TimeoutError:
-        logger.error(f"Global server initialization timed out after {timeout} seconds")
-        return False
-    except Exception as e:
-        logger.error(f"Unexpected error during server initialization: {str(e)}", exc_info=True)
-        return False
+    logger.info(f"Server initialization completed. Connected to {successful_connections}/{len(server_names)} servers")
+    return successful_connections > 0
 
 async def main():
     """Main entry point for the MCP client"""

@@ -1,0 +1,11 @@
+{
+  "console_level": "DEBUG",
+  "file_level": "DEBUG",
+  "debug_level": "DEBUG",
+  "mcp_loggers": {
+    "mcp": "DEBUG",
+    "mcp_client.server.server_manager": "DEBUG",
+    "mcp_client.server.stdio": "DEBUG",
+    "mcp_client.server.memory": "DEBUG"
+  }
+}

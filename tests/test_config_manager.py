@@ -19,7 +19,7 @@ def valid_config():
         "mcpServers": {
             "test-server": {
                 "command": "node",
-                "args": ["test-server.js"],
+                "args": ["tests/test_servers/index.js"],
                 "env": {"TEST_ENV": "value"}
             }
         }
@@ -31,7 +31,7 @@ def invalid_config():
     return {
         "mcpServers": {
             "test-server": {
-                "args": ["test-server.js"]  # Missing required 'command' field
+                "args": ["tests/test_servers/index.js"]  # Missing required 'command' field
             }
         }
     }
