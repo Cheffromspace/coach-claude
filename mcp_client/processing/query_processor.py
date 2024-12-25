@@ -135,7 +135,7 @@ class QueryProcessor:
                         tool_result_desc = f"\n[Tool Result]\n{result_content}"
                         print(tool_result_desc)
                         current_text.append(tool_result_desc)
-o                        
+                        
                         # Add to conversation context
                         messages.append({
                             "role": "assistant",
