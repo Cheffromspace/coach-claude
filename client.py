@@ -183,7 +183,6 @@ async def main():
     return 0
 
 if __name__ == "__main__":
-    ws2_32 = None
     try:
         # Create and configure event loop with system DNS resolver
         loop = asyncio.new_event_loop()
@@ -200,12 +199,8 @@ if __name__ == "__main__":
         loop.close()
         
         # Cleanup Windows networking
-        if sys.platform == 'win32' and 'ws2_32' in globals():
-            try:
-                ws2_32.WSACleanup()
-                logger.debug("Windows networking cleaned up successfully")
-            except Exception as e:
-                logger.error(f"Error cleaning up Windows networking: {e}", exc_info=True)
+        if sys.platform == 'win32':
+            cleanup_windows_networking()
                 
         sys.exit(exit_code)
     except asyncio.CancelledError:
@@ -213,9 +208,6 @@ if __name__ == "__main__":
         sys.exit(0)
     except Exception as e:
         logger.critical(f"Fatal error: {str(e)}", exc_info=True)
-        if sys.platform == 'win32' and 'ws2_32' in globals():
-            try:
-                ws2_32.WSACleanup()
-            except:
-                pass
+        if sys.platform == 'win32':
+            cleanup_windows_networking()
         sys.exit(1)

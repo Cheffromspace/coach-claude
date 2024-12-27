@@ -93,11 +93,11 @@ class ServerManager:
         # Start with a copy of all parent environment variables
         env = os.environ.copy()
         
-        # Enable Node.js debug logging for network operations
+        # Enable Node.js debug logging for operations (excluding net)
         if command.endswith('node.exe') or command == 'node':
-            # Enable debug logging
-            env['NODE_DEBUG'] = 'net,http,dns'
-            env['DEBUG'] = '*'
+            # Enable debug logging (excluding net messages)
+            env['NODE_DEBUG'] = 'http,dns'
+            env['DEBUG'] = '*,-net'
             
             # Configure Node.js process
             env['NODE_OPTIONS'] = '--trace-warnings --dns-result-order=ipv4first'
