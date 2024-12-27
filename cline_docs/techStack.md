@@ -31,6 +31,14 @@
   - Note reading and writing capabilities
   - Support for Obsidian-specific features (backlinks, templates)
   - Vault: C:/Users/Jonathan/Documents/coach-claude
+  - Tools:
+    * read_notes: Read multiple notes with YAML frontmatter
+    * search_notes: Case-insensitive note search with regex support
+    * write_note: Create/update notes with markdown and frontmatter
+    * list_templates: Browse available note templates
+    * create_from_template: Generate notes from templates with variable substitution
+    * create_insight: Specialized insight note creation
+    * create_reflection: Specialized reflection note creation
 
 - **Filesystem Server**
   - Local file system operations

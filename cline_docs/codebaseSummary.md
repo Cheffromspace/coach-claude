@@ -138,10 +138,13 @@ The foundation of our system, implementing the Model Context Protocol for AI mod
    - Protocol handling
    - Resource management
    - Error handling
-   - Obsidian integration via dedicated server
-     * Note reading/writing
-     * Template handling
-     * Backlink support
+   - Obsidian integration via dedicated server:
+     * Note operations (read/write/search)
+     * Template system with variable substitution
+     * Specialized note creation (insights/reflections)
+     * YAML frontmatter support
+     * Backlink management
+     * Regex-based note search
 
 ## External Dependencies
 Key dependencies from pyproject.toml and requirements.txt:
@@ -154,7 +157,12 @@ Key dependencies from pyproject.toml and requirements.txt:
   * flashtext (>=2.7): High-performance keyword matching
 
 ### MCP Servers
-- **Obsidian Server**: Note operations, templates, backlinks
+- **Obsidian Server**: 
+  * Note operations (read/write/search)
+  * Template management and creation
+  * Insight/reflection note generation
+  * YAML frontmatter handling
+  * Regex search capabilities
 - **Filesystem Server**: File system operations
 - **GitHub Server**: Repository operations
 - **Fetch Server**: Web content retrieval
@@ -234,20 +242,24 @@ All project documentation is maintained in `cline_docs/`:
 - `techStack.md`: Technology choices and rationale
 - `codebaseSummary.md`: This document
 
-### Obsidian Templates
-Located in `Documents/coach-claude/templates/`:
-- `insight.md`: Template for capturing key insights
-  - Context tracking with dates and relationships
-  - Impact assessment
-  - Action items
-  - Related insights linking
-  
-- `reflection.md`: Template for periodic reflections
-  - Flexible periods (daily/weekly/monthly)
-  - Key observations and patterns
-  - Progress tracking
-  - Challenge identification
-  - Next steps planning
+### Obsidian Vault Structure
+Located in `Documents/coach-claude/`:
+- `daily_logs/`: Daily activity and progress tracking
+- `insights/`: Captured insights and learnings
+- `reflections/`: Periodic reflection notes
+- `templates/`: Note templates for consistent structure
+  - `daily_log.md`: Template for daily logs
+  - `insight.md`: Template for capturing key insights
+    * Context tracking with dates and relationships
+    * Impact assessment
+    * Action items
+    * Related insights linking
+  - `reflection.md`: Template for periodic reflections
+    * Flexible periods (daily/weekly/monthly)
+    * Key observations and patterns
+    * Progress tracking
+    * Challenge identification
+    * Next steps planning
 
 ## Next Steps in Development
 1. Testing & Validation

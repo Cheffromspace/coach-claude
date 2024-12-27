@@ -133,5 +133,8 @@ To create a deeply personalized AI coaching system that evolves with the user, c
 - Potential for local model training on accumulated data
 - Advanced visualization of patterns and insights
 - Integration with other personal productivity tools
+- Specialized coaching modules for different domains
+- Advanced knowledge base with deep storage capabilities
+- Enhanced pattern recognition and behavioral analysis system
 
 *Note: This roadmap is a living document and will be updated as the project evolves and new insights emerge.*
