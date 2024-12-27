@@ -161,6 +161,22 @@ const CreateReflectionArgsSchema = z.object({
   links: z.array(z.string()).optional(),
 })
 
+const CreateDailyLogArgsSchema = z.object({
+  mood: z.number().min(1).max(5),
+  energy: z.number().min(1).max(5),
+  focusAreas: z.array(z.string()).optional(),
+  sessionType: z.enum(["checkin", "deep_dive", "followup"]),
+  progressRating: z.number().min(1).max(5),
+  summary: z.string(),
+  keyTopics: z.array(z.string()).optional(),
+  progressUpdates: z.array(z.string()).optional(),
+  insights: z.array(z.string()).optional(),
+  actionItems: z.array(z.string()).optional(),
+  followupPoints: z.array(z.string()).optional(),
+  notes: z.array(z.string()).optional(),
+  relatedNotes: z.array(z.string()).optional(),
+})
+
 const ToolInputSchema = ToolSchema.shape.inputSchema
 type ToolInput = z.infer<typeof ToolInputSchema>
 
@@ -264,6 +280,11 @@ async function searchNotes(query: string): Promise<string[]> {
 
 // Tool definitions
 const TOOL_DEFINITIONS = {
+  create_daily_log: {
+    name: "create_daily_log",
+    description: "Creates a new daily log note using the daily_log template with YAML frontmatter. The note will be created in the daily_logs directory. The date and other metadata are automatically added to the frontmatter.",
+    inputSchema: zodToJsonSchema(CreateDailyLogArgsSchema) as ToolInput,
+  },
   read_notes: {
     name: "read_notes",
     description: "Read the contents of multiple notes. Each note's content is returned with its path as a reference. Notes use YAML frontmatter for metadata. Failed reads for individual notes won't stop the entire operation. Reading too many at once may result in an error.",
@@ -313,6 +334,63 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params
 
     switch (name) {
+      case "create_daily_log": {
+        const parsed = CreateDailyLogArgsSchema.safeParse(args)
+        if (!parsed.success) {
+          throw new Error(`Invalid arguments for create_daily_log: ${parsed.error}`)
+        }
+
+        try {
+          // Read the daily log template
+          const templateContent = await readTemplate('daily_log.md')
+          
+          // Get today's date
+          const today = new Date().toISOString().split('T')[0]
+          
+          // Prepare variables for template substitution
+          const variables = {
+            date: today,
+            mood: String(parsed.data.mood),
+            energy: String(parsed.data.energy),
+            focus_areas: parsed.data.focusAreas?.join(", ") || "",
+            session_type: parsed.data.sessionType,
+            progress_rating: String(parsed.data.progressRating),
+            summary: parsed.data.summary,
+            key_topics: parsed.data.keyTopics?.map(topic => `- ${topic}`).join("\n") || "",
+            progress_updates: parsed.data.progressUpdates?.map(item => `- [ ] ${item}`).join("\n") || "",
+            insights: parsed.data.insights?.map(insight => `- ${insight}`).join("\n") || "",
+            action_items: parsed.data.actionItems?.map(item => `- [ ] ${item}`).join("\n") || "",
+            followup_points: parsed.data.followupPoints?.map(point => `- ${point}`).join("\n") || "",
+            notes: parsed.data.notes?.map(note => `- ${note}`).join("\n") || "",
+            related_notes: parsed.data.relatedNotes?.map(note => `- [[${note}]]`).join("\n") || ""
+          }
+
+          // Fill the template
+          const filledContent = substituteVariables(templateContent, variables)
+          const notePath = `daily_logs/${today}.md`
+          
+          // Use write_note functionality to create the file
+          const normalizedPath = normalizeNotePath(notePath)
+          const fullPath = path.join(vaultDirectories[0], normalizedPath)
+          const validPath = await validatePath(fullPath)
+
+          await fs.mkdir(path.dirname(validPath), { recursive: true })
+          await fs.writeFile(validPath, filledContent, "utf-8")
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Successfully created daily log at ${normalizedPath}`,
+              },
+            ],
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          throw new Error(`Failed to create daily log: ${errorMessage}`)
+        }
+      }
+
       case "create_insight": {
         const parsed = CreateInsightArgsSchema.safeParse(args)
         if (!parsed.success) {
