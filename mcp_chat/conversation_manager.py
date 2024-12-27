@@ -29,7 +29,7 @@ class ConversationSession:
     messages: List[Dict] = field(default_factory=list)
     metadata: Dict = field(default_factory=dict)
     tool_usage: List[ToolUsage] = field(default_factory=list)
-    system_prompts: List[str] = field(default_factory=list)
+    system_prompts: List[Dict] = field(default_factory=list)  # Now stores dicts with type, text, and cache_control
 
     def to_dict(self) -> Dict:
         """Convert session to dictionary for serialization"""
@@ -115,17 +115,65 @@ class ConversationManager:
             with open(session_file, 'w') as f:
                 json.dump(self.current_session.to_dict(), f, indent=2)
 
-    def add_message(self, content: str, role: str = "user", metadata: Dict = None):
+    def add_message(self, content: str, role: str = "user", metadata: Dict = None, cache: bool = False):
         """Add a message to the current session"""
         if not self.current_session:
             self.start_session()
 
+        # Initialize or update cache stats in session metadata
+        if 'cache_stats' not in self.current_session.metadata:
+            self.current_session.metadata['cache_stats'] = {
+                'total_cache_creation_tokens': 0,
+                'total_cache_read_tokens': 0,
+                'total_uncached_tokens': 0,
+                'total_output_tokens': 0,
+                'cache_hits': 0,
+                'total_requests': 0
+            }
+        
+        # Update cache stats if metrics are provided
+        if metadata and 'cache_metrics' in metadata:
+            metrics = metadata['cache_metrics']
+            stats = self.current_session.metadata['cache_stats']
+            
+            stats['total_cache_creation_tokens'] += metrics.get('cache_creation_input_tokens', 0)
+            stats['total_cache_read_tokens'] += metrics.get('cache_read_input_tokens', 0)
+            stats['total_uncached_tokens'] += metrics.get('input_tokens', 0)
+            stats['total_output_tokens'] += metrics.get('output_tokens', 0)
+            stats['total_requests'] += 1
+            
+            if metrics.get('cache_read_input_tokens', 0) > 0:
+                stats['cache_hits'] += 1
+                
+            # Calculate overall cache effectiveness
+            if stats['total_requests'] > 0:
+                total_input = (stats['total_cache_creation_tokens'] + 
+                             stats['total_cache_read_tokens'] + 
+                             stats['total_uncached_tokens'])
+                if total_input > 0:
+                    stats['cache_hit_rate'] = (stats['total_cache_read_tokens'] / total_input) * 100
+                    stats['token_savings'] = (stats['total_cache_read_tokens'] * 0.9) / total_input * 100
+
         message = {
             'timestamp': datetime.now().isoformat(),
-            'content': content,
             'role': role,
             'metadata': metadata or {}
         }
+
+        # Format content as a structured message with optional caching
+        if isinstance(content, str):
+            message_content = {
+                'type': 'text',
+                'text': content
+            }
+            # Enable caching for large text content or documentation
+            if cache and len(content) > 1024:  # Only cache substantial content
+                message_content['cache_control'] = {'type': 'ephemeral'}
+            message['content'] = message_content
+        else:
+            # Handle pre-formatted content (e.g. from system prompts)
+            message['content'] = content
+
         self.current_session.messages.append(message)
         self.current_session.last_active = datetime.now()
         self.save_session()
@@ -171,8 +219,8 @@ class ConversationManager:
         self.current_session.metadata['tool_stats'] = tool_stats
         self.save_session()
 
-    def get_context(self, limit: int = 10, include_system_prompts: bool = True) -> List[Dict]:
-        """Get recent conversation context with optional system prompts"""
+    def get_context(self, limit: int = 10, include_system_prompts: bool = True, cache_conversation: bool = True) -> List[Dict]:
+        """Get recent conversation context with optional system prompts and conversation caching"""
         if not self.current_session:
             return []
 
@@ -180,22 +228,57 @@ class ConversationManager:
         
         # Add system prompts first if requested
         if include_system_prompts and self.current_session.system_prompts:
-            for prompt in self.current_session.system_prompts:
-                context.append({
-                    'role': 'system',
-                    'content': prompt
-                })
+            context.append({
+                'role': 'system',
+                'content': [prompt for prompt in self.current_session.system_prompts]
+            })
 
-        # Add recent messages
+        # Get recent messages
         messages = self.current_session.messages[-limit:]
-        context.extend([
-            {
-                'role': msg['role'],
-                'content': msg['content'],
-                'metadata': msg.get('metadata', {})
-            }
-            for msg in messages
-        ])
+        
+        # If caching conversation and there are enough messages, create a cached block
+        if cache_conversation and len(messages) > 2:
+            # Cache all but the most recent message
+            cached_messages = messages[:-1]
+            recent_message = messages[-1]
+            
+            # Create a cached conversation block
+            cached_content = []
+            for msg in cached_messages:
+                if isinstance(msg['content'], dict):
+                    cached_content.append(msg['content'])
+                else:
+                    cached_content.append({
+                        'type': 'text',
+                        'text': msg['content']
+                    })
+            
+            # Add cache control to the conversation block
+            context.append({
+                'role': 'system',
+                'content': [{
+                    'type': 'text',
+                    'text': 'Previous conversation context:',
+                    'cache_control': {'type': 'ephemeral'}
+                }] + cached_content
+            })
+            
+            # Add the most recent message separately
+            context.append({
+                'role': recent_message['role'],
+                'content': recent_message['content'],
+                'metadata': recent_message.get('metadata', {})
+            })
+        else:
+            # If not caching or too few messages, add them normally
+            context.extend([
+                {
+                    'role': msg['role'],
+                    'content': msg['content'],
+                    'metadata': msg.get('metadata', {})
+                }
+                for msg in messages
+            ])
 
         return context
 
@@ -204,6 +287,12 @@ class ConversationManager:
         if not self.current_session:
             return []
         return self.current_session.system_prompts
+        
+    def get_cache_stats(self) -> Dict:
+        """Get cache performance statistics for the current session"""
+        if not self.current_session:
+            return {}
+        return self.current_session.metadata.get('cache_stats', {})
 
     def update_metadata(self, metadata: Dict, merge: bool = True):
         """Update session metadata with merge option"""

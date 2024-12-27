@@ -20,6 +20,7 @@ class MCPChatInterface:
         # Start new session with default prompts if not loading history
         if not load_existing_history:
             default_prompts = self.prompt_manager.get_default_prompts()
+            # Start session with the new prompt format
             self.conversation_manager.start_session(system_prompts=default_prompts)
 
     def print_message(self, message):
@@ -34,12 +35,16 @@ class MCPChatInterface:
             self.console.print("You:", style="bright_blue", end=" ")
         else:
             self.console.print("Assistant:", style="bright_green", end=" ")
-        self.console.print(content)
+            
+        # Handle structured content
+        if isinstance(content, dict):
+            self.console.print(content.get('text', ''))
+        else:
+            self.console.print(content)
         
         # Print metadata if debug mode
         if metadata and os.getenv('MCP_DEBUG'):
             self.console.print(f"[dim]Metadata: {json.dumps(metadata, indent=2)}[/]")
-
 
     async def process_response(self, response: str):
         """Process and record assistant response with metadata"""
@@ -70,13 +75,18 @@ class MCPChatInterface:
                         metadata['tool_calls'][-1]['success'] = False
                         metadata['tool_calls'][-1]['error'] = line
         
-        # Add response to conversation
-        self.conversation_manager.add_message(response, role="assistant", metadata=metadata)
+        # Add response to conversation with caching for long responses
+        self.conversation_manager.add_message(
+            response, 
+            role="assistant", 
+            metadata=metadata,
+            cache=len(response) > 1024  # Cache long responses
+        )
 
-    async def add_message(self, content: str, role: str = "user"):
+    async def add_message(self, content: str, role: str = "user", cache: bool = False):
         """Add a message and process with MCP if needed"""
-        # Add message to conversation
-        self.conversation_manager.add_message(content, role=role)
+        # Add message to conversation with optional caching
+        self.conversation_manager.add_message(content, role=role, cache=cache)
         
         # Get message for display
         messages = self.conversation_manager.current_session.messages
@@ -84,10 +94,13 @@ class MCPChatInterface:
 
         if role == "user":
             try:
-                # Get context including system prompts
-                context = self.conversation_manager.get_context(include_system_prompts=True)
+                # Get context including system prompts and cached conversation
+                context = self.conversation_manager.get_context(
+                    include_system_prompts=True,
+                    cache_conversation=True
+                )
                 
-                # Process query
+                # Process query with the new context format
                 response = await self.mcp_client.process_query(content, context)
                 
                 # Process and record response with metadata
@@ -124,6 +137,22 @@ class MCPChatInterface:
                 f"Tool Uses: {session['tool_usage_count']}"
             )
 
+    async def add_documentation(self, content: str, description: str = "Documentation"):
+        """Add documentation or large text content with caching enabled"""
+        system_content = {
+            'type': 'text',
+            'text': content,
+            'cache_control': {'type': 'ephemeral'}
+        }
+        
+        # Add as a system message with cache control
+        self.conversation_manager.add_message(
+            system_content,
+            role="system",
+            metadata={'type': 'documentation', 'description': description},
+            cache=True
+        )
+
     async def run(self):
         """Run the chat interface"""
         self.console.print("MCP Chat Interface", style="bold blue")
@@ -131,6 +160,8 @@ class MCPChatInterface:
         self.console.print("  /quit - Exit the interface", style="bright_black")
         self.console.print("  /sessions - List saved sessions", style="bright_black")
         self.console.print("  /load <session_id> - Load a saved session", style="bright_black")
+        self.console.print("  /doc <content> - Add documentation with caching", style="bright_black")
+        self.console.print("  /cache - Show cache performance statistics", style="bright_black")
         self.console.print("----------------------------------------")
         
         # Print existing session messages
@@ -150,7 +181,7 @@ class MCPChatInterface:
                     
                 # Handle commands
                 if message.startswith('/'):
-                    cmd_parts = message[1:].split()
+                    cmd_parts = message[1:].split(maxsplit=1)
                     cmd = cmd_parts[0].lower()
                     
                     if cmd == 'quit':
@@ -163,6 +194,30 @@ class MCPChatInterface:
                             # Print loaded session messages
                             for msg in self.conversation_manager.current_session.messages:
                                 self.print_message(msg)
+                    elif cmd == 'doc' and len(cmd_parts) > 1:
+                        content = cmd_parts[1]
+                        await self.add_documentation(content)
+                        self.console.print("Documentation added with caching enabled", style="green")
+                    elif cmd == 'cache':
+                        stats = self.conversation_manager.get_cache_stats()
+                        if stats:
+                            self.console.print("\nCache Performance Statistics:", style="bold blue")
+                            self.console.print(f"Total Requests: {stats['total_requests']}")
+                            self.console.print(f"Cache Hits: {stats['cache_hits']}")
+                            if stats['total_requests'] > 0:
+                                hit_rate = (stats['cache_hits'] / stats['total_requests']) * 100
+                                self.console.print(f"Cache Hit Rate: {hit_rate:.1f}%")
+                            
+                            self.console.print("\nToken Usage:")
+                            self.console.print(f"Cache Creation Tokens: {stats['total_cache_creation_tokens']}")
+                            self.console.print(f"Cache Read Tokens: {stats['total_cache_read_tokens']}")
+                            self.console.print(f"Uncached Tokens: {stats['total_uncached_tokens']}")
+                            self.console.print(f"Output Tokens: {stats['total_output_tokens']}")
+                            
+                            if 'token_savings' in stats:
+                                self.console.print(f"\nToken Savings: {stats['token_savings']:.1f}%")
+                        else:
+                            self.console.print("No cache statistics available", style="yellow")
                     else:
                         self.console.print("Unknown command", style="red")
                 else:

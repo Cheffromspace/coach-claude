@@ -59,6 +59,22 @@
 
 ## Project Components
 
+### Caching System
+- **Prompt Caching**
+  - Ephemeral caching with 5-minute TTL
+  - System prompt caching
+  - Conversation context caching
+  - Documentation caching
+  - Performance tracking
+  - Token usage analytics
+
+- **Cache Control**
+  - Automatic caching for large content
+  - Selective caching for static content
+  - Cache hit tracking
+  - Token savings calculation
+  - Cache effectiveness metrics
+
 ### MCP Client (`mcp_client/`)
 - **Configuration Management** (`config/`)
   - JSON-based configuration system
@@ -86,6 +102,8 @@
 - Message handling
 - Response formatting
 - Session management
+- Cache performance monitoring
+- Documentation caching commands
 
 ## Development Tools
 
@@ -124,6 +142,22 @@
   - Semantic understanding
 
 ## Architecture Decisions
+
+### Why Caching?
+1. Performance
+   - Reduced token processing
+   - Faster response times
+   - Lower API costs
+
+2. Efficiency
+   - Reuse of static content
+   - Optimized conversation history
+   - Smart documentation handling
+
+3. Analytics
+   - Cache performance tracking
+   - Token usage monitoring
+   - Cost optimization insights
 
 ### Why Python?
 1. Rapid Development

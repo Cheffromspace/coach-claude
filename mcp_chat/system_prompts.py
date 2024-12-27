@@ -17,6 +17,7 @@ class PromptTemplate:
     description: str
     variables: List[str]
     tags: List[str]
+    cache_control: bool = False  # Whether this prompt should be cached
 
 class SystemPromptManager:
     """Manages system prompts and templates"""
@@ -78,7 +79,7 @@ class SystemPromptManager:
             return [t for t in self.templates.values() if tag in t.tags]
         return list(self.templates.values())
 
-    def generate_prompt(self, template_name: str, variables: Dict[str, str]) -> Optional[str]:
+    def generate_prompt(self, template_name: str, variables: Dict[str, str]) -> Optional[Dict]:
         """Generate a prompt from a template with variables"""
         template = self.get_template(template_name)
         if not template:
@@ -89,9 +90,17 @@ class SystemPromptManager:
             if var in variables:
                 prompt = prompt.replace(f"{{{{{var}}}}}", variables[var])
 
-        return prompt
+        result = {
+            "type": "text",
+            "text": prompt
+        }
+        
+        if template.cache_control:
+            result["cache_control"] = {"type": "ephemeral"}
 
-    def get_default_prompts(self) -> List[str]:
+        return result
+
+    def get_default_prompts(self) -> List[Dict]:
         """Get default system prompts for new sessions"""
         return [
             self.generate_prompt('base', {}),
@@ -109,7 +118,8 @@ def create_default_templates() -> List[PromptTemplate]:
             Maintain a clear and professional communication style.""",
             description="Base system prompt for all sessions",
             variables=[],
-            tags=["core"]
+            tags=["core"],
+            cache_control=True
         ),
         PromptTemplate(
             name="privacy",
@@ -117,7 +127,8 @@ def create_default_templates() -> List[PromptTemplate]:
             Do not request or store sensitive information. All data should be handled locally.""",
             description="Privacy-focused system prompt",
             variables=[],
-            tags=["core", "privacy"]
+            tags=["core", "privacy"],
+            cache_control=True
         ),
         PromptTemplate(
             name="capabilities",
@@ -125,7 +136,8 @@ def create_default_templates() -> List[PromptTemplate]:
             Use these tools effectively to assist users while maintaining security and privacy.""",
             description="Capabilities and tools system prompt",
             variables=[],
-            tags=["core", "tools"]
+            tags=["core", "tools"],
+            cache_control=True
         ),
         PromptTemplate(
             name="task",
@@ -134,7 +146,8 @@ def create_default_templates() -> List[PromptTemplate]:
             Approach: {{approach}}""",
             description="Task-specific system prompt",
             variables=["task_description", "context", "approach"],
-            tags=["task"]
+            tags=["task"],
+            cache_control=False  # Dynamic content should not be cached
         )
     ]
 
