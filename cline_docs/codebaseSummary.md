@@ -41,23 +41,51 @@ The foundation of our system, implementing the Model Context Protocol for AI mod
   - Integrates conversation and prompt management
   - Handles message flow and commands
   - Supports session management
-  - Cache performance monitoring
+  - Cache performance monitoring and statistics
   - Documentation caching commands
+  - Enhanced /cache command with block statistics
 
 - **Conversation Manager** (`conversation_manager.py`)
   - Manages conversation sessions
   - Tracks message history and tool usage
   - Handles metadata and context
   - Provides session persistence
-  - Implements conversation caching
-  - Tracks cache performance metrics
+  - Implements chunked conversation caching:
+    * Splits messages into manageable chunks
+    * Size-based chunk management (5 messages/2000 tokens)
+    * Individual cache blocks per chunk
+    * Automatic chunk size optimization
+  - Cache block management:
+    * Tracks active, cleaned, and total blocks
+    * Automatic cleanup on session load
+    * Block creation and cleanup monitoring
+    * Performance statistics tracking
+  - Tracks cache performance metrics:
+    * Block allocation/deallocation rates
+    * Cache hit/miss ratios
+    * Memory usage patterns
+    * Token savings calculations
 
 - **System Prompts** (`system_prompts.py`)
-  - Manages prompt templates
-  - Handles variable substitution
-  - Provides default system prompts
-  - Supports template categorization
-  - Cache control for static prompts
+  - Advanced NLP-based context analysis using spaCy:
+    * Linguistic feature analysis
+    * Named entity recognition
+    * Part-of-speech tagging
+    * Sentiment analysis
+  - High-performance pattern matching with flashtext:
+    * O(n) complexity keyword matching
+    * Efficient tool and context detection
+    * Extensible keyword dictionaries
+  - Enhanced context detection:
+    * Message type classification (task/reflection/insight/planning)
+    * Complexity estimation
+    * Interaction phase detection
+    * Tool requirement prediction
+  - Intelligent prompt management:
+    * Dynamic template selection
+    * Context-aware prompt generation
+    * Cache control optimization
+    * Support for specialized contexts (privacy, tools, etc.)
 
 ## Data Flow
 1. User Input → Chat Interface
@@ -71,21 +99,30 @@ The foundation of our system, implementing the Model Context Protocol for AI mod
    - Context management
    - Tool usage tracking
    - Metadata handling
+   - Cache block management
+   - Chunk size optimization
 
 3. Conversation Manager → Message Processor
    - Message formatting with context
    - System prompt integration
    - Pipeline initialization
+   - Cache control handling
 
 4. Message Processor → Query Processor
    - Query extraction with context
    - Tool discovery and coordination
    - Response preparation and tracking
+   - Cache performance monitoring
 
 5. Query Processor → Server Manager
    - Server selection and health checks
    - Tool execution and monitoring
    - Response management and error handling
+   - Prompt effectiveness tracking:
+     * Tool success rates
+     * Cache hit rates
+     * Usage patterns
+     * Context adaptation
 
 5. Server Manager → MCP Servers
    - Protocol handling
@@ -102,6 +139,9 @@ Key dependencies from pyproject.toml and requirements.txt:
 - MCP implementation requirements
 - Development tools (UV)
 - Testing frameworks
+- NLP and Pattern Matching:
+  * spaCy (>=3.7.2): Advanced natural language processing
+  * flashtext (>=2.7): High-performance keyword matching
 
 ### MCP Servers
 - **Obsidian Server**: Note operations, templates, backlinks
@@ -112,43 +152,42 @@ Key dependencies from pyproject.toml and requirements.txt:
 - **Weather Server**: Weather data access
 
 ## Recent Significant Changes
-1. Core Integration
-   - Enhanced conversation management
-   - Implemented system prompt handling
-   - Added session persistence
-   - Improved tool usage tracking
-   - Added prompt caching system
+1. Cache Management Improvements
+   - Implemented chunked conversation caching
+   - Added cache block tracking and cleanup
+   - Enhanced cache performance monitoring
+   - Improved cache statistics reporting
+   - Added automatic chunk size management
+   - Implemented session-level cache cleanup
 
-2. Caching Implementation
-   - Added cache control to system prompts
-   - Implemented conversation context caching
-   - Added documentation caching support
-   - Integrated cache performance tracking
-   - Added cache analytics and reporting
+2. Core Integration
+   - Enhanced conversation management with context awareness
+   - Implemented dynamic system prompt selection
+   - Added session persistence with effectiveness tracking
+   - Improved tool usage tracking with pattern analysis
+   - Added comprehensive prompt caching system
+   - Integrated context-based prompt adaptation
 
-2. User Interface
+3. User Interface
    - Added session management commands
    - Enhanced message display
    - Improved error handling
    - Added metadata support
+   - Enhanced /cache command with block statistics
 
-3. System Architecture
+4. System Architecture
    - Integrated conversation and prompt management
    - Enhanced context handling
    - Improved tool orchestration
    - Added session persistence
+   - Implemented cache block management
 
-2. Documentation
+5. Documentation
    - Created comprehensive project documentation
    - Established project roadmap
    - Documented technology stack
    - Created development guidelines
-
-3. Architecture
-   - Defined system architecture
-   - Established component boundaries
-   - Implemented core interfaces
-   - Set up basic infrastructure
+   - Added cache management documentation
 
 ## Project Structure
 ```
@@ -187,19 +226,27 @@ Located in `Documents/coach-claude/templates/`:
   - Next steps planning
 
 ## Next Steps in Development
-1. Knowledge Management
-   - Implement Obsidian integration
-   - Create logging system
-   - Develop consolidation workflows
+1. Testing & Validation
+   - Validate system prompt effectiveness
+   - Test knowledge consolidation workflow
+   - Verify note relationship functionality
+   - Monitor cache performance metrics
 
-2. Core Features
-   - Enhance conversation management
-   - Implement pattern recognition
-   - Develop insight extraction
+2. Knowledge Management
+   - Test memory retrieval accuracy
+   - Validate context building
+   - Verify pattern recognition
+   - Test insight extraction
 
-3. Infrastructure
-   - Set up testing framework
-   - Implement monitoring
+3. Performance Optimization
+   - Monitor cache block usage
+   - Track prompt selection metrics
+   - Analyze tool usage patterns
+   - Optimize conversation chunking
+
+4. Infrastructure
    - Enhance error handling
+   - Improve monitoring systems
+   - Expand test coverage
 
 *Note: This document will be updated as the codebase evolves and new components are added.*
