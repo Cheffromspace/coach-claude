@@ -1,14 +1,14 @@
-import logging
-import json
 import asyncio
-from typing import Dict, List, Optional
+import json
+import logging
 import os
+from typing import Dict, List, Optional
 from anthropic import Anthropic
 
 logger = logging.getLogger(__name__)
 
 class QueryProcessor:
-    """Handles complex query processing using Claude integration."""
+    """Handles query processing using Claude integration and MCP tools."""
     
     def __init__(self, server_manager, anthropic_client: Optional[Anthropic] = None):
         """Initialize QueryProcessor with server manager and optional Anthropic client."""
@@ -17,21 +17,18 @@ class QueryProcessor:
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY environment variable is required")
         self.anthropic = anthropic_client or Anthropic(api_key=api_key)
+        self.model = "claude-3-sonnet-20240229"
         self.max_iterations = 10
-        self.initialized = False
         self.api_timeout = 30  # timeout for Anthropic API calls in seconds
         
-    async def initialize(self, timeout: int = 30) -> bool:
-        """Initialize the query processor and verify connections."""
-        logger.info("Initializing QueryProcessor...")
+    async def initialize(self, timeout: int = 120) -> bool:
+        """Initialize the query processor and verify MCP server health."""
         try:
             # Add timeout for initialization
             await asyncio.wait_for(
                 self._initialize(),
                 timeout=timeout
             )
-            self.initialized = True
-            logger.info("QueryProcessor initialization completed successfully")
             return True
         except asyncio.TimeoutError:
             logger.error(f"QueryProcessor initialization timed out after {timeout} seconds")
@@ -42,150 +39,112 @@ class QueryProcessor:
             
     async def _initialize(self):
         """Internal initialization method."""
-        # Verify server manager is working
-        logger.info("Verifying server connections...")
         await self.server_manager.check_servers_health()
-        
-        # Test tool retrieval
-        logger.info("Testing tool retrieval...")
         tools = await self.server_manager.get_all_tools()
         if not tools:
             raise RuntimeError("No tools available from connected servers")
         logger.info(f"Found {len(tools)} available tools")
 
-    async def process_query(self, query: str, context: Optional[List[Dict]] = None, health_check_interval: int = 60) -> str:
-        """Process a query using Claude and available tools from all connected servers."""
+    async def process_query(self, query: str, context: Optional[List[Dict]] = None) -> str:
+        """Process a query using Claude and MCP tools."""
         logger.info("Starting query processing")
-        messages = context if context else []
-        messages.append({
-            "role": "user",
-            "content": query
-        })
-
-        # Check server health
-        logger.info("Checking server health...")
-        await self.server_manager.check_servers_health(health_check_interval)
         
+        # Prepare messages and system prompt
+        system_prompts = []
+        messages = []
+        if context:
+            for msg in context:
+                if msg.get('role') == 'system':
+                    system_prompts.append(msg.get('content', ''))
+                else:
+                    messages.append({
+                        'role': msg.get('role'),
+                        'content': msg.get('content')
+                    })
+        
+        # Add environment details to query
+        formatted_query = f"{query}\n\nEnvironment Details:\n{os.environ.get('ENVIRONMENT_DETAILS', '')}"
+        messages.append({'role': 'user', 'content': formatted_query})
+        
+        # Get system prompt if any
+        system = "\n\n".join(system_prompts) if system_prompts else None
+
         # Get available tools
-        logger.info("Getting available tools...")
+        await self.server_manager.check_servers_health()
         available_tools = await self.server_manager.get_all_tools()
         logger.info(f"Found {len(available_tools)} available tools")
 
-        # Initial Claude API call with timeout
-        try:
-            response = self.anthropic.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=1000,
-                messages=messages,
-                tools=available_tools
-            )
-        except asyncio.TimeoutError:
-            error_msg = f"Anthropic API call timed out after {self.api_timeout} seconds"
-            logger.error(error_msg)
-            raise RuntimeError(error_msg)
-        except Exception as e:
-            logger.error(f"Anthropic API call failed: {str(e)}", exc_info=True)
-            raise
-
-        # Process response and handle tool calls in a loop
+        # Process query with Claude and handle tool calls
         final_text = []
         iteration = 0
         
-        # Add initial thinking
-        if response.content and response.content[0].type == 'text':
-            initial_thinking = f"[Initial Thinking]\n{response.content[0].text}\n"
-            print(initial_thinking)
-            final_text.append(initial_thinking)
-        
         while iteration < self.max_iterations:
             iteration += 1
-            has_tool_call = False
             current_text = []
             
-            iteration_header = f"\n[Iteration {iteration}]"
-            print(iteration_header)
-            current_text.append(iteration_header)
+            # Make Claude API call
+            create_params = {
+                "model": self.model,
+                "max_tokens": 1000,
+                "messages": messages,
+                "tools": available_tools
+            }
+            if system:
+                create_params["system"] = system
+                
+            try:
+                response = self.anthropic.messages.create(**create_params)
+            except Exception as e:
+                error_msg = f"Claude API call failed: {str(e)}"
+                logger.error(error_msg, exc_info=True)
+                return f"\n[Error]\n{error_msg}"
+
+            # Process response
+            has_tool_call = False
+            current_text.append(f"\n[Iteration {iteration}]")
             
             for content in response.content:
                 if content.type == 'text':
                     thinking = f"\n[Thinking]\n{content.text}"
                     print(thinking)
                     current_text.append(thinking)
+                    
                 elif content.type == 'tool_use':
                     has_tool_call = True
                     tool_name = content.name
-                    tool_args = content.input
+                    tool_args = content.input if isinstance(content.input, dict) else json.loads(content.input)
                     
+                    # Call tool and handle result
                     try:
-                        # Log tool usage
                         tool_call_desc = f"\n[Tool Call]\nTool: {tool_name}\nArguments: {json.dumps(tool_args, indent=2)}"
                         print(tool_call_desc)
                         current_text.append(tool_call_desc)
                         
                         result = await self.server_manager.call_tool(tool_name, tool_args)
                         if result is None:
-                            error_msg = f"Tool {tool_name} not found in any connected server"
-                            error_output = f"\n[Error]\n{error_msg}"
-                            print(error_output)
-                            current_text.append(error_output)
+                            error_msg = f"Tool {tool_name} not found"
+                            current_text.append(f"\n[Error]\n{error_msg}")
                             continue
-                        
-                        # Log tool result
+                            
                         result_content = json.dumps(result, indent=2)
-                        tool_result_desc = f"\n[Tool Result]\n{result_content}"
-                        print(tool_result_desc)
-                        current_text.append(tool_result_desc)
+                        print(f"\n[Tool Result]\n{result_content}")
+                        current_text.append(f"\n[Tool Result]\n{result_content}")
                         
-                        # Add to conversation context
-                        messages.append({
-                            "role": "assistant",
-                            "content": f"Using tool: {tool_name} with arguments: {json.dumps(tool_args)}"
-                        })
-                        messages.append({
-                            "role": "user",
-                            "content": f"Tool result: {result_content}"
-                        })
+                        # Update conversation context
+                        messages.extend([
+                            {'role': 'assistant', 'content': f'Using tool: {tool_name} with arguments: {json.dumps(tool_args)}'},
+                            {'role': 'user', 'content': f'Tool result: {result_content}'}
+                        ])
                     except Exception as e:
                         error_msg = f"Error executing tool {tool_name}: {str(e)}"
-                        error_output = f"\n[Error]\n{error_msg}"
-                        print(error_output)
-                        current_text.append(error_output)
                         logger.error(error_msg)
+                        current_text.append(f"\n[Error]\n{error_msg}")
             
-            # Add current text to final output
             final_text.extend(current_text)
-            
-            # If no tool calls were made, we're done
             if not has_tool_call:
                 break
                 
-            # Make another API call with updated context if there were tool calls
-            if has_tool_call:
-                try:
-                    response = self.anthropic.messages.create(
-                        model="claude-3-5-sonnet-20241022",
-                        max_tokens=1000,
-                        messages=messages,
-                        tools=available_tools
-                    )
-                except asyncio.TimeoutError:
-                    error_msg = f"Anthropic API call timed out after {self.api_timeout} seconds"
-                    logger.error(error_msg)
-                    error_output = f"\n[Error]\n{error_msg}"
-                    print(error_output)
-                    final_text.append(error_output)
-                    break
-                except Exception as e:
-                    error_msg = f"Anthropic API call failed: {str(e)}"
-                    logger.error(error_msg, exc_info=True)
-                    error_output = f"\n[Error]\n{error_msg}"
-                    print(error_output)
-                    final_text.append(error_output)
-                    break
-        
         if iteration >= self.max_iterations:
-            warning = "\n[Warning]\nReached maximum number of tool call iterations."
-            print(warning)
-            final_text.append(warning)
+            final_text.append("\n[Warning]\nReached maximum number of tool call iterations.")
             
         return "\n".join(final_text)

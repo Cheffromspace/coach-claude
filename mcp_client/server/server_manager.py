@@ -1,4 +1,12 @@
+"""MCP Server Manager for managing child processes and their network configuration."""
+
 import asyncio
+import sys
+import win32api
+import win32process
+import win32file
+import win32pipe
+import win32net
 import logging
 import os
 import time
@@ -30,7 +38,7 @@ class ServerManager:
         self.retry_delay = 1
         self.config = config
         self.health_check_task = None
-        self.health_check_interval = 30  # seconds
+        self.health_check_interval = 300  # seconds - increase to 5 minutes
 
     async def start_health_check_task(self):
         """Start background task for periodic health checks"""
@@ -82,29 +90,73 @@ class ServerManager:
 
     def _get_server_env(self, command: str, server_config: Dict) -> dict:
         """Get environment variables for server command"""
-        env = {}
-        # Always include PATH
-        env['PATH'] = os.environ.get('PATH', '')
+        # Start with a copy of all parent environment variables
+        env = os.environ.copy()
         
-        if command in ('npm', 'npx', 'xvfb-run'):
-            env['NODE_ENV'] = 'development'
-        elif command == 'uvx':
-            # Pass through Python-related environment variables
-            python_vars = [
-                'PYTHONPATH', 'VIRTUAL_ENV', 'PYTHON_VERSION',
-                'PYTHONHOME', 'PYTHON_HOME', 'UV_HOME', 'UV_SYSTEM_PYTHON'
-            ]
-            for var in python_vars:
-                if var in os.environ:
-                    env[var] = os.environ[var]
-        # Merge with config env if present
+        # Enable Node.js debug logging for network operations
+        if command.endswith('node.exe') or command == 'node':
+            # Enable debug logging
+            env['NODE_DEBUG'] = 'net,http,dns'
+            env['DEBUG'] = '*'
+            
+            # Configure Node.js process
+            env['NODE_OPTIONS'] = '--trace-warnings --dns-result-order=ipv4first'
+            env['UV_THREADPOOL_SIZE'] = '4'
+            
+            # Ensure proper Node.js process creation
+            env['ELECTRON_RUN_AS_NODE'] = '1'
+            env['ELECTRON_NO_ATTACH_CONSOLE'] = '1'
+            
+        # Allow config to override environment variables
         if 'env' in server_config:
             env.update(server_config['env'])
+            
         return env
+
+    def _init_process_networking(self, process):
+        """Initialize networking for a child process"""
+        if sys.platform == 'win32' and hasattr(process, 'pid'):
+            try:
+                # Get process handle with minimal required access
+                handle = win32api.OpenProcess(
+                    win32process.PROCESS_SET_QUOTA | win32process.PROCESS_TERMINATE,
+                    False,
+                    process.pid
+                )
+                
+                try:
+                    # Set process network priority
+                    win32process.SetPriorityClass(handle, win32process.NORMAL_PRIORITY_CLASS)
+                    
+                    # Initialize network subsystem
+                    try:
+                        # Force DNS cache initialization
+                        import socket
+                        socket.gethostbyname('localhost')
+                        
+                        # Force network stack initialization
+                        win32net.NetGetDCName(None, None)
+                    except:
+                        # Ignore if DC not available, we just want to init the stack
+                        pass
+                finally:
+                    # Always close handle
+                    win32api.CloseHandle(handle)
+                
+                logger.debug(f"Initialized networking for process {process.pid}")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to initialize process networking: {e}", exc_info=True)
+                return False
+        return True
 
     async def _check_process_health(self, server_name: str) -> bool:
         """Check if server process is still running"""
         if server_name not in self.server_processes:
+            # If no process reference but server is in connected servers, assume it's healthy
+            if server_name in self.connected_servers:
+                logger.debug(f"[{server_name}] No process reference but server is connected")
+                return True
             logger.debug(f"[{server_name}] No process to check")
             return False
             
@@ -116,27 +168,19 @@ class ServerManager:
         return True
 
     async def _check_server_health(self, server_name: str) -> bool:
-        """Check if a server is healthy by checking process and tools"""
+        """Check if a server is healthy by checking tool availability"""
         try:
-            # First check process health
-            if not await self._check_process_health(server_name):
-                logger.error(f"[{server_name}] Process health check failed")
-                await self.cleanup_server(server_name)
-                return False
-                
             if server_name not in self.servers:
                 logger.debug(f"[{server_name}] Server not found in self.servers")
                 return False
 
             logger.debug(f"[{server_name}] Starting health check...")
             server_info = self.servers[server_name]
-            logger.debug(f"[{server_name}] Server info: {server_info}")
 
-            # Add 5 second timeout for health check
             try:
                 tools_response = await asyncio.wait_for(
                     server_info.session.list_tools(),
-                    timeout=5
+                    timeout=120
                 )
                 logger.debug(f"[{server_name}] Health check tools response: {tools_response}")
                 
@@ -149,7 +193,7 @@ class ServerManager:
                 return True
                 
             except asyncio.TimeoutError:
-                logger.error(f"[{server_name}] Health check timed out after 5 seconds")
+                logger.error(f"[{server_name}] Health check timed out after 120 seconds")
                 return False
                 
         except Exception as e:
@@ -157,7 +201,7 @@ class ServerManager:
             logger.debug(f"[{server_name}] Server state: {self.servers.get(server_name)}")
             return False
 
-    async def connect_to_server(self, server_name: str, timeout: int = 30) -> bool:
+    async def connect_to_server(self, server_name: str, timeout: int = 120) -> bool:
         """Connect to an MCP server with retry logic"""
         retry_count = 0
         start_time = time.time()
@@ -223,6 +267,11 @@ class ServerManager:
                     if hasattr(stdio, 'process'):
                         self.server_processes[server_name] = stdio.process
                         logger.debug(f"[{server_name}] Stored process reference: {stdio.process}")
+                        
+                        # Initialize networking for the process
+                        if not self._init_process_networking(stdio.process):
+                            logger.error(f"[{server_name}] Failed to initialize process networking")
+                            return False
                     else:
                         logger.warning(f"[{server_name}] No process reference available from stdio client")
                     
@@ -245,21 +294,24 @@ class ServerManager:
                         if isinstance(msg, dict):
                             if msg.get('type') == 'error':
                                 logger.error(f"[{server_name}] Server error: {msg.get('error')}")
+                                # Don't cleanup on every error, some might be recoverable
                             elif msg.get('type') == 'close':
                                 logger.error(f"[{server_name}] Server closed connection")
-                                await self.cleanup_server(server_name)
+                                # Schedule cleanup to avoid deadlock if called during a tool call
+                                asyncio.create_task(self.cleanup_server(server_name))
                     stdio.on_message = on_message
 
                     # Set up close handler
                     async def on_close():
                         logger.error(f"[{server_name}] Connection closed unexpectedly")
-                        await self.cleanup_server(server_name)
+                        # Schedule cleanup to avoid deadlock
+                        asyncio.create_task(self.cleanup_server(server_name))
                     stdio.on_close = on_close
                     
                     # Initialize session with detailed logging
                     logger.debug(f"[{server_name}] Initializing session...")
                     try:
-                        response = await asyncio.wait_for(session.initialize(), timeout=30)
+                        response = await asyncio.wait_for(session.initialize(), timeout=60)
                         logger.debug(f"[{server_name}] Initialize response: {response}")
                         if not response:
                             logger.error(f"[{server_name}] Session initialization failed: no response")
@@ -275,7 +327,7 @@ class ServerManager:
                     # List tools with detailed logging
                     logger.debug(f"[{server_name}] Listing tools...")
                     try:
-                        tools_response = await asyncio.wait_for(session.list_tools(), timeout=5)
+                        tools_response = await asyncio.wait_for(session.list_tools(), timeout=120)
                         logger.debug(f"[{server_name}] Tools response: {tools_response}")
                         
                         if not tools_response:
@@ -337,7 +389,7 @@ class ServerManager:
         available_tools = []
         for server_name, server_info in self.servers.items():
             try:
-                tools_response = await asyncio.wait_for(server_info.session.list_tools(), timeout=5)
+                tools_response = await asyncio.wait_for(server_info.session.list_tools(), timeout=120)
                 logger.debug(f"Raw tools response from {server_name}: {tools_response}")
                 
                 if not tools_response:
@@ -352,11 +404,27 @@ class ServerManager:
                 for i, tool in enumerate(tools_response.tools):
                     try:
                         logger.debug(f"Processing tool {i} from {server_name}: {tool}")
+                        # Format tool info for Claude 3
+                        # Format tool info for Claude 3
                         tool_info = {
                             "name": tool.name,
                             "description": tool.description,
-                            "input_schema": tool.inputSchema
                         }
+                        
+                        # Ensure input_schema has required structure
+                        input_schema = {
+                            "type": "object",
+                            "properties": {},
+                            "required": []
+                        }
+                        
+                        if hasattr(tool, 'inputSchema') and isinstance(tool.inputSchema, dict):
+                            if 'properties' in tool.inputSchema:
+                                input_schema["properties"] = tool.inputSchema["properties"]
+                            if 'required' in tool.inputSchema:
+                                input_schema["required"] = tool.inputSchema["required"]
+                        
+                        tool_info["input_schema"] = input_schema
                         tools.append(tool_info)
                     except Exception as e:
                         logger.error(f"Error processing tool {i} from {server_name}", exc_info=True)
@@ -373,53 +441,59 @@ class ServerManager:
     async def call_tool(self, tool_name: str, tool_args: dict, timeout: int = 60) -> Optional[dict]:
         """Call a tool on the appropriate server"""
         logger.debug(f"Attempting to call tool {tool_name} with args {tool_args}")
+        
+        if not isinstance(tool_args, dict):
+            logger.error(f"Tool arguments must be a dictionary, got {type(tool_args)}")
+            return None
+            
         logger.debug(f"Connected servers: {self.connected_servers}")
         logger.debug(f"Available servers: {list(self.servers.keys())}")
         
-        # First verify server health
-        for server_name in list(self.servers.keys()):
-            if not await self._check_server_health(server_name):
-                logger.error(f"[{server_name}] Server unhealthy, removing from available servers")
-                continue
-        
         for server_name, server_info in self.servers.items():
-            logger.debug(f"[{server_name}] Checking for tool {tool_name}")
             try:
-                session = server_info.session
-                logger.debug(f"[{server_name}] Getting tool list")
-                tools_response = await asyncio.wait_for(session.list_tools(), timeout=5)
-                logger.debug(f"[{server_name}] Tools response: {tools_response}")
+                # First check if this server has the tool
+                tools_response = await asyncio.wait_for(
+                    server_info.session.list_tools(),
+                    timeout=60
+                )
                 
-                if not tools_response or not hasattr(tools_response, 'tools'):
-                    logger.error(f"[{server_name}] Invalid tools response")
-                    continue
-                    
-                tools = tools_response.tools
-                logger.debug(f"[{server_name}] Available tools: {[t.name for t in tools]}")
-                
-                if any(tool.name == tool_name for tool in tools):
-                    logger.debug(f"[{server_name}] Found matching tool, attempting to call")
+                if any(tool.name == tool_name for tool in tools_response.tools):
+                    logger.info(f"Found tool {tool_name} on server {server_name}")
                     try:
-                        logger.debug(f"[{server_name}] Calling tool with timeout {timeout}s")
-                        try:
-                            response = await asyncio.wait_for(
-                                session.call_tool(tool_name, tool_args),
-                                timeout=timeout
-                            )
-                        except asyncio.TimeoutError:
-                            logger.error(f"[{server_name}] Tool call timed out after {timeout}s")
-                            await self.cleanup_server(server_name)
-                            raise
+                        response = await asyncio.wait_for(
+                            server_info.session.call_tool(tool_name, tool_args),
+                            timeout=timeout
+                        )
                         logger.debug(f"[{server_name}] Tool response: {response}")
                         logger.info(f"Successfully called {tool_name} on {server_name}")
+                        
+                        # Extract content from CallToolResult
+                        formatted_response = []
+                        if hasattr(response, 'content'):
+                            for content in response.content:
+                                if hasattr(content, 'type') and hasattr(content, 'text'):
+                                    formatted_response.append({
+                                        "type": content.type,
+                                        "text": content.text
+                                    })
+                        
                         return {
                             "result": "success",
                             "tool": tool_name,
                             "args": tool_args,
-                            "response": response
+                            "response": formatted_response
                         }
+                    except asyncio.TimeoutError:
+                        logger.error(f"[{server_name}] Tool call timed out after {timeout}s")
+                        continue
                     except Exception as e:
-                        logger.error(f"[{server_name}] Failed to call {tool_name}", exc_info=True)
+                        logger.error(f"[{server_name}] Error calling tool: {str(e)}")
+                        if "connection" in str(e).lower():
+                            await self.cleanup_server(server_name)
+                        continue
+            except asyncio.TimeoutError:
+                logger.error(f"[{server_name}] Timeout listing tools")
+                continue
             except Exception as e:
                 logger.error(f"[{server_name}] Error checking tools", exc_info=True)
                 continue
