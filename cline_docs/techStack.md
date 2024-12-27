@@ -60,20 +60,36 @@
 ## Project Components
 
 ### Caching System
+- **Conversation Caching**
+  - Chunked conversation management:
+    * 5 messages or 2000 tokens per chunk
+    * Individual cache blocks per chunk
+    * Automatic chunk size optimization
+    * Dynamic chunk allocation
+  - Cache block management:
+    * Active block tracking
+    * Automatic cleanup on session load
+    * Block creation monitoring
+    * Usage statistics tracking
+
 - **Prompt Caching**
   - Ephemeral caching with 5-minute TTL
   - System prompt caching
-  - Conversation context caching
   - Documentation caching
   - Performance tracking
   - Token usage analytics
 
 - **Cache Control**
-  - Automatic caching for large content
+  - Automatic caching for large content (>1024 chars)
   - Selective caching for static content
   - Cache hit tracking
   - Token savings calculation
   - Cache effectiveness metrics
+  - Block-level statistics:
+    * Active/cleaned blocks
+    * Block creation rates
+    * Block lifetime tracking
+    * Memory usage patterns
 
 ### MCP Client (`mcp_client/`)
 - **Configuration Management** (`config/`)
@@ -104,6 +120,7 @@
 - Session management
 - Cache performance monitoring
 - Documentation caching commands
+- Enhanced cache statistics reporting
 
 ## Development Tools
 
@@ -143,21 +160,43 @@
 
 ## Architecture Decisions
 
+### Why Chunked Caching?
+1. Performance
+   - Prevents cache block exhaustion
+   - Optimizes memory usage
+   - Enables efficient cleanup
+   - Reduces context loss risk
+
+2. Efficiency
+   - Granular cache control
+   - Optimized chunk sizes
+   - Automatic resource management
+   - Improved memory utilization
+
+3. Reliability
+   - Automatic cleanup mechanisms
+   - Session-level cache management
+   - Block tracking and monitoring
+   - Performance statistics
+
 ### Why Caching?
 1. Performance
    - Reduced token processing
    - Faster response times
    - Lower API costs
+   - Optimized memory usage
 
 2. Efficiency
    - Reuse of static content
    - Optimized conversation history
    - Smart documentation handling
+   - Granular cache control
 
 3. Analytics
    - Cache performance tracking
    - Token usage monitoring
    - Cost optimization insights
+   - Block-level statistics
 
 ### Why Python?
 1. Rapid Development
@@ -213,5 +252,10 @@
 - Enhanced pattern recognition systems
 - Advanced visualization tools
 - Specialized processing pipelines
+- Advanced cache optimization strategies:
+  * Predictive chunk sizing
+  * Dynamic TTL adjustment
+  * Context-aware caching
+  * Memory usage optimization
 
 *Note: This document will be updated as technology choices evolve and new components are added to the system.*

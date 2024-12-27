@@ -3,3 +3,5 @@ mcp>=1.1.2
 python-dotenv>=1.0.1
 rich>=13.7.0
 pywin32>=308
+spacy>=3.7.2
+flashtext>=2.7
