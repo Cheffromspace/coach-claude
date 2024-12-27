@@ -1,7 +1,18 @@
-anthropic>=0.42.0
-mcp>=1.1.2
-python-dotenv>=1.0.1
-rich>=13.7.0
-pywin32>=308
-spacy>=3.7.2
+# Core dependencies
+rich>=10.0.0
+pyperclip>=1.8.2
+spacy>=3.0.0
 flashtext>=2.7
+asyncio>=3.4.3
+uuid>=1.30
+
+# NLP model
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.0.0/en_core_web_sm-3.0.0.tar.gz
+
+# Development dependencies
+pytest>=6.0.0
+pytest-asyncio>=0.14.0
+pytest-cov>=2.10.0
+black>=20.8b1
+flake8>=3.8.0
+mypy>=0.800
