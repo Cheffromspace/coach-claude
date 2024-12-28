@@ -158,11 +158,25 @@ Key dependencies from pyproject.toml and requirements.txt:
 
 ### MCP Servers
 - **Obsidian Server**: 
-  * Note operations (read/write/search)
-  * Template management and creation
-  * Insight/reflection note generation
-  * YAML frontmatter handling
-  * Regex search capabilities
+  * Enhanced note operations with metadata support
+  * Advanced template system with variable substitution
+  * Specialized note creation (insights/reflections/training examples)
+  * Pattern detection and analysis
+  * Relationship tracking
+  * Components:
+    - Schema System (schemas.ts):
+      * Centralized tool definitions
+      * Metadata validation schemas
+      * Input validation for all tools
+    - Tool Handlers (tool-handlers.ts):
+      * Template discovery and usage
+      * Pattern-based note searching
+      * Enhanced metadata handling
+      * Improved error handling
+    - Query Engine (query-engine.ts):
+      * Pattern detection
+      * Note analysis
+      * Relationship mapping
 - **Filesystem Server**: File system operations
 - **GitHub Server**: Repository operations
 - **Fetch Server**: Web content retrieval
@@ -170,56 +184,56 @@ Key dependencies from pyproject.toml and requirements.txt:
 - **Weather Server**: Weather data access
 
 ## Recent Significant Changes
-1. Windows Networking Enhancements
-   - Added robust Winsock initialization
-   - Implemented proper network cleanup
-   - Added DNS resolution configuration
-   - Enhanced process networking setup
-   - Improved error handling and recovery
+1. Obsidian Server Enhancement
+   - Added TOOL_DEFINITIONS for server configuration
+   - Enhanced metadata system with:
+     * Effectiveness tracking
+     * Training categories
+     * Privacy levels
+     * Quality markers
+     * Pattern tracking
+   - Added new tools:
+     * listTemplates for template discovery
+     * createFromTemplate for template-based note creation
+     * searchNotes for regex-based searching
+   - Improved error handling and validation
+   - Enhanced type safety with TypeScript
 
-2. Server Management Improvements
-   - Added detailed process monitoring
-   - Enhanced error recovery mechanisms
-   - Implemented health check system
-   - Added comprehensive logging
-   - Improved process cleanup
+2. Phase 1 Foundation Completion
+   - Completed basic MCP client implementation
+   - Finalized knowledge structure setup
+   - Implemented daily logging system
+   - Established core integration components
+   - Documented system architecture
 
-3. Cache Management Improvements
-   - Implemented chunked conversation caching
-   - Added cache block tracking and cleanup
-   - Enhanced cache performance monitoring
-   - Improved cache statistics reporting
-   - Added automatic chunk size management
-   - Implemented session-level cache cleanup
+2. Cache System Optimization
+   - Enhanced chunked conversation caching
+   - Improved block management and tracking
+   - Added session-level persistence
+   - Implemented memory usage monitoring
+   - Enhanced performance analytics
+   - Added block lifetime analysis
 
-2. Core Integration
-   - Enhanced conversation management with context awareness
-   - Implemented dynamic system prompt selection
-   - Added session persistence with effectiveness tracking
-   - Improved tool usage tracking with pattern analysis
-   - Added comprehensive prompt caching system
-   - Integrated context-based prompt adaptation
+3. MCP Server Updates
+   - Added create_daily_log tool to Obsidian server
+   - Enhanced query_notes functionality
+   - Updated server documentation
+   - Improved tool error handling
+   - Enhanced server health monitoring
 
-3. User Interface
-   - Added session management commands
-   - Enhanced message display
-   - Improved error handling
-   - Added metadata support
-   - Enhanced /cache command with block statistics
+4. Documentation Improvements
+   - Updated project roadmap with Phase 1 completion
+   - Enhanced technical documentation
+   - Added detailed server capabilities
+   - Updated cache system documentation
+   - Improved architecture documentation
 
-4. System Architecture
-   - Integrated conversation and prompt management
-   - Enhanced context handling
-   - Improved tool orchestration
-   - Added session persistence
-   - Implemented cache block management
-
-5. Documentation
-   - Created comprehensive project documentation
-   - Established project roadmap
-   - Documented technology stack
-   - Created development guidelines
-   - Added cache management documentation
+5. System Architecture
+   - Refined component interactions
+   - Enhanced error handling
+   - Improved logging system
+   - Updated configuration management
+   - Enhanced tool orchestration
 
 ## Project Structure
 ```

@@ -1,22 +1,37 @@
 #!/usr/bin/env node
+import { ObsidianServer } from './server.js'
 
-import path from "path"
-import { expandHome, normalizePath } from "./utils.js"
-import { ObsidianServer } from "./server.js"
-
-// Command line argument parsing
-const args = process.argv.slice(2)
-if (args.length === 0) {
-  console.error("Usage: mcp-obsidian <vault-directory>")
-  process.exit(1)
+interface ServerConfig {
+  mode: 'session' | 'consolidation'
+  vaultRoot: string
 }
 
-// Store allowed directories in normalized form
-const vaultDirectories = [normalizePath(path.resolve(expandHome(args[0])))]
+const parseArgs = (args: string[]): ServerConfig => {
+  const mode = args.find(arg => arg.startsWith('--mode='))?.split('=')[1] || 'session'
+  const vaultRoot = args.find(arg => arg.startsWith('--vault='))?.split('=')[1] || process.env.VAULT_ROOT
+  
+  if (!vaultRoot) {
+    throw new Error('Vault root must be specified via --vault= argument or VAULT_ROOT environment variable')
+  }
 
-// Create and run the server
-const server = new ObsidianServer(vaultDirectories)
-server.run().catch((error) => {
-  console.error("Fatal error running server:", error)
-  process.exit(1)
-})
+  if (mode !== 'session' && mode !== 'consolidation') {
+    throw new Error('Mode must be either "session" or "consolidation"')
+  }
+
+  return { mode, vaultRoot }
+}
+
+const main = async () => {
+  try {
+    const config = parseArgs(process.argv.slice(2))
+    console.error(`Starting Obsidian MCP server in ${config.mode} mode`)
+
+    const server = new ObsidianServer([config.vaultRoot], config.mode)
+    await server.run()
+  } catch (error) {
+    console.error('Failed to start server:', error)
+    process.exit(1)
+  }
+}
+
+main()

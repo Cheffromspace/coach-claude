@@ -39,14 +39,15 @@ export async function validatePath(
     : path.resolve(process.cwd(), expandedPath)
 
   const normalizedRequested = normalizePath(absolute)
+  const normalizedDirs = vaultDirectories.map(dir => normalizePath(path.resolve(dir)))
 
   // Check if path is within allowed directories
-  const isAllowed = vaultDirectories.some((dir) =>
+  const isAllowed = normalizedDirs.some((dir) =>
     normalizedRequested.startsWith(dir)
   )
   if (!isAllowed) {
     throw new Error(
-      `Access denied - path outside allowed directories: ${absolute} not in ${vaultDirectories.join(
+      `Access denied - path outside allowed directories: ${normalizedRequested} not in ${normalizedDirs.join(
         ", "
       )}`
     )
@@ -107,24 +108,6 @@ export async function readNote(filePath: string): Promise<{
   }
 }
 
-// Template utilities
-export async function listTemplates(
-  vaultRoot: string,
-  folder?: string
-): Promise<string[]> {
-  const templatesPath = path.join(vaultRoot, 'templates', folder || '')
-  try {
-    await validatePath(templatesPath, [vaultRoot])
-    const entries = await fs.readdir(templatesPath, { withFileTypes: true })
-    return entries
-      .filter(entry => entry.isFile() && entry.name.endsWith('.md'))
-      .map(entry => folder ? path.join(folder, entry.name) : entry.name)
-  } catch (error) {
-    console.error('Error listing templates:', error)
-    return []
-  }
-}
-
 export async function readTemplate(
   vaultRoot: string,
   templateName: string
@@ -144,6 +127,16 @@ export function substituteVariables(
 ): string {
   if (!variables) return content
   
+  // First handle YAML frontmatter special cases
+  content = content.replace(/(mood|energy|progress_rating):\s*1\|2\|3\|4\|5/g, (match, key) => {
+    return `${key}: ${variables[key] || match.split(': ')[1]}`
+  })
+
+  content = content.replace(/session_type:\s*checkin\|deep_dive\|followup/g, (match) => {
+    return `session_type: ${variables['session_type'] || match.split(': ')[1]}`
+  })
+
+  // Then handle regular variable substitutions
   return content.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
     const trimmedKey = key.trim()
     if (trimmedKey === 'date') {
@@ -151,58 +144,4 @@ export function substituteVariables(
     }
     return variables[trimmedKey] || match
   })
-}
-
-/**
- * Search for notes in the allowed directories that match the query.
- * @param query - The query to search for.
- * @param vaultRoot - The root directory of the vault.
- * @param searchLimit - Maximum number of results to return.
- * @returns An array of relative paths to the notes (from root) that match the query.
- */
-export async function searchNotes(
-  query: string,
-  vaultRoot: string,
-  searchLimit: number
-): Promise<string[]> {
-  const results: string[] = []
-
-  async function search(basePath: string, currentPath: string) {
-    const entries = await fs.readdir(currentPath, { withFileTypes: true })
-
-    for (const entry of entries) {
-      const fullPath = path.join(currentPath, entry.name)
-
-      try {
-        // Validate each path before processing
-        await validatePath(fullPath, [vaultRoot])
-
-        let matches = entry.name.toLowerCase().includes(query.toLowerCase())
-        try {
-          matches =
-            matches ||
-            new RegExp(query.replace(/[*]/g, ".*"), "i").test(entry.name)
-        } catch {
-          // Ignore invalid regex
-        }
-
-        if (entry.name.endsWith(".md") && matches) {
-          // Turn into relative path
-          // Ensure we get a clean relative path
-          const relativePath = path.relative(basePath, fullPath)
-          results.push(normalizeNotePath(relativePath))
-        }
-
-        if (entry.isDirectory()) {
-          await search(basePath, fullPath)
-        }
-      } catch (error) {
-        // Skip invalid paths during search
-        continue
-      }
-    }
-  }
-
-  await search(vaultRoot, vaultRoot)
-  return results.slice(0, searchLimit)
 }

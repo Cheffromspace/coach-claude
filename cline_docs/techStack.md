@@ -28,42 +28,52 @@
 ### MCP Servers
 - **Obsidian Server**
   - Direct integration with Obsidian vault
-  - Note reading and writing capabilities
-  - Support for Obsidian-specific features (backlinks, templates)
+  - Mode-based tool access:
+    * Session Mode (Default):
+      - Simplified tools for quick note-taking
+      - Basic metadata schema
+      - Core operations only
+    * Consolidation Mode:
+      - Full feature set for knowledge processing
+      - Advanced metadata and relationships
+      - Pattern detection and analysis
   - Vault: C:/Users/Jonathan/Documents/coach-claude
-  - Tools:
-    * read_notes: Read multiple notes with YAML frontmatter
-    * search_notes: Case-insensitive note search with regex support
-    * write_note: Create/update notes with markdown and frontmatter
-    * list_templates: Browse available note templates
-    * create_from_template: Generate notes from templates with variable substitution
-    * create_insight: Specialized insight note creation
-    * create_reflection: Specialized reflection note creation
+  - Tools by Mode:
+    * Session Mode Tools:
+      - create_daily_log (simplified)
+      - create_insight (basic)
+      - read_notes
+      - write_note
+      - search_notes
+      - list_templates
+    * Additional Consolidation Mode Tools:
+      - create_consolidated_knowledge
+      - create_training_example
+      - query_patterns
+      - query_notes
+      - Advanced metadata operations
+  - Mode Control:
+    * Command-line argument (--mode)
+    * Environment variable support
+    * Safe default to session mode
 
-- **Filesystem Server**
-  - Local file system operations
-  - Directory and file management
-  - Root: C:/Users/Jonathan
-
-- **GitHub Server**
-  - GitHub repository integration
-  - API access with authentication
-  - Repository operations and management
+- **Puppeteer Server**
+  - Browser automation and control
+  - Screenshot capabilities
+  - Page interaction and navigation
+  - Console log access
 
 - **Fetch Server**
   - Web content retrieval
   - URL fetching and content extraction
   - Support for various content types
-
-- **Brave Search Server**
-  - Web search capabilities
-  - API-based search operations
-  - Result filtering and processing
+  - Markdown conversion options
 
 - **Weather Server**
   - Weather data retrieval
-  - Forecast information
-  - Weather-related operations
+  - Forecast information (1-5 days)
+  - Current conditions access
+  - City-based queries
 
 ## Project Components
 
@@ -74,11 +84,14 @@
     * Individual cache blocks per chunk
     * Automatic chunk size optimization
     * Dynamic chunk allocation
+    * Session-level persistence
   - Cache block management:
-    * Active block tracking
+    * Active/cleaned block tracking
     * Automatic cleanup on session load
     * Block creation monitoring
     * Usage statistics tracking
+    * Memory usage patterns
+    * Block lifetime analysis
 
 - **Prompt Caching**
   - Ephemeral caching with 5-minute TTL
@@ -178,6 +191,25 @@
 
 ## Architecture Decisions
 
+### Why Mode-Based Architecture?
+1. Cognitive Load
+   - Simplified interface during sessions
+   - Focused tool availability
+   - Clear separation of concerns
+   - Reduced complexity when needed
+
+2. Data Quality
+   - Structured knowledge capture
+   - Consistent metadata application
+   - Proper relationship tracking
+   - Pattern recognition support
+
+3. Workflow Optimization
+   - Task-appropriate tools
+   - Streamlined session capture
+   - Dedicated consolidation phase
+   - Enhanced knowledge synthesis
+
 ### Why Chunked Caching?
 1. Performance
    - Prevents cache block exhaustion
@@ -275,5 +307,10 @@
   * Dynamic TTL adjustment
   * Context-aware caching
   * Memory usage optimization
+- Mode-specific optimizations:
+  * Template customization
+  * Metadata field optimization
+  * Pattern detection enhancements
+  * Workflow refinements
 
 *Note: This document will be updated as technology choices evolve and new components are added to the system.*

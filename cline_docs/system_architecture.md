@@ -1,38 +1,70 @@
 flowchart TD
     User[User Interface] --> CM[Conversation Manager]
     
-    subgraph MemorySystem[Memory System]
-        KG[Knowledge Graph]
-        VM[Vector Memory/RAG]
-        CS[Conversation State]
-        PT[Personal Traits & Goals]
+    subgraph KnowledgeSystem[Knowledge Management System]
+        subgraph Active[Active Layer]
+            CS[Conversation State]
+            DL[Daily Logs]
+            CI[Current Insights]
+            MD[Enhanced Metadata]
+        end
+
+        subgraph Consolidated[Consolidated Layer]
+            TC[Topic Clusters]
+            SY[Synthesized Knowledge]
+            PT[Personal Traits & Goals]
+        end
+
+        subgraph Training[Training Archive]
+            CP[Conversation Pairs]
+            TE[Training Examples]
+            HC[Historical Context]
+        end
     end
 
-    subgraph KB[Knowledge Base]
-        SR[Scientific Research]
-        BP[Best Practices]
-        DK[Domain Knowledge]
+    subgraph ProcessingSystem[Processing System]
+        subgraph Runtime[Runtime Processing]
+            MP[Message Processor]
+            TP[Tool Processor]
+            CP2[Context Processor]
+        end
+
+        subgraph Consolidation[Consolidation Processing]
+            PC[Pattern Clustering]
+            KS[Knowledge Synthesis]
+            TD[Training Data Preparation]
+        end
     end
 
-    subgraph Coach[Coach Personality]
-        SP[System Prompt]
-        PT2[Personality Traits]
-        CG[Coaching Guidelines]
+    subgraph ConfigSystem[System Configuration]
+        SP[System Prompts]
+        CF[Config Settings]
+        TL[Tool Links]
     end
 
-    CM --> MemorySystem
-    CM --> KB
-    CM --> Coach
+    CM --> Active
+    CM --> Runtime
     
-    KG --> CM
-    VM --> CM
-    CS --> CM
-    PT --> CM
+    Runtime --> Active
+    Active --> Consolidated
+    Consolidated --> Training
     
-    SR --> CM
-    BP --> CM
-    DK --> CM
+    ProcessingSystem --> KnowledgeSystem
+    ConfigSystem --> ProcessingSystem
     
-    SP --> CM
-    PT2 --> CM
-    CG --> CM
+    subgraph DataFlow[Data Flow]
+        direction LR
+        I[Input] --> P[Processing] --> S[Storage] --> C[Consolidation]
+    end
+
+    classDef active fill:#e6b3ff,stroke:#6600cc,color:#000
+    classDef consolidated fill:#b3ffb3,stroke:#006600,color:#000
+    classDef training fill:#ffd9b3,stroke:#cc6600,color:#000
+    classDef processing fill:#b3e0ff,stroke:#0066cc,color:#000
+    classDef config fill:#d9ffb3,stroke:#66cc00,color:#000
+    
+    class CS,DL,CI,MD active
+    class TC,SY,PT consolidated
+    class CP,TE,HC training
+    class MP,TP,CP2,PC,KS,TD processing
+    class SP,CF,TL config

@@ -253,3 +253,50 @@ class SessionManager:
             self.current_session.metadata = metadata.copy()
             
         self.save_session()
+
+    def add_message(self, content: str, role: str = "user", metadata: Dict = None, cache: bool = False, update_prompts: bool = True):
+        """Add a message to the current session"""
+        if not self.current_session:
+            logger.warning("No active session to add message to")
+            return
+
+        message = {
+            'role': role,
+            'content': content,
+            'timestamp': datetime.now().isoformat(),
+            'metadata': metadata or {}
+        }
+
+        # Add cache control if enabled
+        if cache:
+            message['metadata']['cache_control'] = {
+                'type': 'persistent',
+                'block_id': str(uuid.uuid4())
+            }
+            # Update cache block tracking
+            self.current_session.metadata['cache_blocks']['active'] += 1
+            self.current_session.metadata['cache_blocks']['total_created'] += 1
+
+        self.current_session.messages.append(message)
+        self.current_session.last_active = datetime.now()
+        
+        # Update prompt effectiveness if this is an assistant message
+        if role == "assistant" and update_prompts:
+            for prompt in self.current_session.system_prompts:
+                if 'text' in prompt:
+                    stats = self.current_session.metadata['prompt_effectiveness'].get(prompt['text'], {
+                        'uses': 0,
+                        'successful_interactions': 0,
+                        'tool_success_rate': 0.0,
+                        'cache_hit_rate': 0.0
+                    })
+                    stats['uses'] += 1
+                    # Update success metrics based on metadata
+                    if metadata and 'tool_calls' in metadata:
+                        successful_tools = sum(1 for t in metadata['tool_calls'] if t.get('success', False))
+                        total_tools = len(metadata['tool_calls'])
+                        if total_tools > 0:
+                            stats['tool_success_rate'] = successful_tools / total_tools
+                    self.current_session.metadata['prompt_effectiveness'][prompt['text']] = stats
+
+        self.save_session()

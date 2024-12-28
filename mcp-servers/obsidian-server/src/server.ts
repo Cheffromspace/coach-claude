@@ -4,7 +4,6 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js"
-import { TOOL_DEFINITIONS } from "./schemas.js"
 import { ToolHandlers } from "./tool-handlers.js"
 import { normalizePath, expandHome } from "./utils.js"
 import fs from "fs/promises"
@@ -14,7 +13,10 @@ export class ObsidianServer {
   private server: Server
   private toolHandlers: ToolHandlers
 
-  constructor(private vaultDirectories: string[]) {
+  constructor(private vaultDirectories: string[], mode: 'session' | 'consolidation' = 'session') {
+    this.toolHandlers = new ToolHandlers(vaultDirectories[0])
+    this.toolHandlers.setMode(mode)
+
     this.server = new Server(
       {
         name: "mcp-obsidian",
@@ -22,12 +24,10 @@ export class ObsidianServer {
       },
       {
         capabilities: {
-          tools: {},
+          tools: this.toolHandlers.getToolDefinitions(),
         },
       }
     )
-
-    this.toolHandlers = new ToolHandlers(vaultDirectories[0])
 
     // Error handling
     this.server.onerror = (error) => console.error('[MCP Error]', error)
@@ -42,7 +42,7 @@ export class ObsidianServer {
   private setupRequestHandlers() {
     // List available tools
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: Object.values(TOOL_DEFINITIONS),
+      tools: Object.values(this.toolHandlers.getToolDefinitions()),
     }))
 
     // Handle tool calls
