@@ -318,6 +318,45 @@ class MCPChatInterface:
                     elif cmd == 'cache':
                         stats = self.cache_manager.get_cache_stats()
                         self.console.print_cache_stats(stats)
+                    elif cmd == 'new':
+                        # Save current session if it exists
+                        if self.session_manager.current_session:
+                            self.session_manager.save_session()
+                        
+                        # Start new session with core coaching personality
+                        personality = self.prompt_manager.get_template('coach_personality')
+                        if personality:
+                            system_prompt = {
+                                'type': 'text',
+                                'text': personality.content,
+                                'cache_control': personality.cache_control
+                            }
+                            
+                            initial_context = {
+                                'message_type': 'task',
+                                'interaction_phase': 'start',
+                                'sensitive_data': True,
+                                'tools_needed': []
+                            }
+                            
+                            self.session_manager.start_session(
+                                initial_context=initial_context,
+                                system_prompts=[system_prompt]
+                            )
+                            
+                            self.console.print_message({
+                                'content': "Started new chat session",
+                                'role': 'system',
+                                'timestamp': '',
+                                'metadata': {}
+                            })
+                        else:
+                            self.console.print_message({
+                                'content': "Error: Failed to get coach personality template",
+                                'role': 'system',
+                                'timestamp': '',
+                                'metadata': {'error': 'Missing template'}
+                            })
                     else:
                         self.console.print_message({
                             'content': "Unknown command",

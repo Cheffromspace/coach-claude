@@ -72,6 +72,8 @@ export class ObsidianServer {
             return await this.toolHandlers.updateGoalStatus(args)
           case "update_habit_tracking":
             return await this.toolHandlers.updateHabitTracking(args)
+          case "create_metric_note":
+            return await this.toolHandlers.createMetricNote(args)
           default:
             throw new Error(`Unknown tool: ${name}`)
         }

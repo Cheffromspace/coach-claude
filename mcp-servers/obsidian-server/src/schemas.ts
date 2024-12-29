@@ -233,6 +233,32 @@ export const CreateHabitSchema = HabitSchema.omit({
   }).optional()
 })
 
+// Metric note schema
+export const MetricNoteSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  numericValue: z.number(),
+  unit: z.string(),
+  textValue: z.string().optional(),
+  note: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  metadata: z.object({
+    created: z.string(),
+    modified: z.string(),
+    privacyLevel: z.enum(['public', 'private', 'sensitive']),
+    effectiveness: z.number().min(1).max(5).optional(),
+    relationships: z.array(z.string()).optional()
+  })
+})
+
+// Create metric note schema that omits auto-generated fields
+export const CreateMetricNoteSchema = MetricNoteSchema.omit({ 
+  id: true,
+  metadata: true 
+}).extend({
+  metadata: MetadataSchema.optional()
+})
+
 // Utility schemas
 export const ReadNotesArgsSchema = z.object({
   paths: z.array(z.string())

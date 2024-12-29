@@ -138,16 +138,6 @@ class SystemPromptManager:
         message_type = context.get('message_type', '')
         logger.debug(f"Processing message type: {message_type}")
         
-        # Add capabilities for task messages
-        if message_type == 'task':
-            logger.debug("Task message type - adding capabilities prompt")
-            capabilities = self.generate_prompt('capabilities', {
-                'datetime': get_system_datetime()
-            })
-            if capabilities:
-                selected_prompts.append(capabilities)
-                logger.debug("Added capabilities prompt")
-        
         # Add memory management for reflection or insight messages
         if message_type in ['reflection', 'insight']:
             logger.debug(f"{message_type} message type - adding memory management prompt")
@@ -278,24 +268,4 @@ Focus on maintaining trust while gathering necessary context.""",
             tags=["core", "privacy"],
             cache_control=True
         ),
-        PromptTemplate(
-            name="capabilities",
-            content="""CAPABILITIES
-Current Time: {{datetime}}
-
-AVAILABLE TOOLS
-1. Obsidian for memory management:
-   - Reading and writing notes
-   - Using templates
-   - Managing knowledge connections
-2. Core coaching tools:
-   - Session structuring
-   - Progress tracking
-   - Pattern recognition
-Use these capabilities to provide consistent, effective coaching support.""",
-            description="Capabilities and tools system prompt",
-            variables=['datetime'],
-            tags=["core", "tools"],
-            cache_control=True
-        )
     ]

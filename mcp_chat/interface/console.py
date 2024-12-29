@@ -70,6 +70,7 @@ class ConsoleInterface:
         self.console.print("  /cache - Show cache performance statistics", style="bright_black")
         self.console.print("  /paste - Send clipboard contents (with preview for large content)", style="bright_black")
         self.console.print("  /remove <n> - Remove last n conversation turns", style="bright_black")
+        self.console.print("  /new - Start a new chat session", style="bright_black")
         self.console.print("----------------------------------------")
 
     def print_cache_stats(self, stats):

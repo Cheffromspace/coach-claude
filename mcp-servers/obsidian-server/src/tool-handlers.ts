@@ -13,7 +13,8 @@ import {
   ReadNotesArgsSchema,
   QueryNotesArgsSchema,
   CreateGoalSchema,
-  CreateHabitSchema
+  CreateHabitSchema,
+  CreateMetricNoteSchema
 } from "./schemas.js"
 import { parseDataviewQuery, executeQuery, getMarkdownFiles } from "./query-engine.js"
 
@@ -134,7 +135,68 @@ export class ToolHandlers {
           reason: z.string().optional(),
           outcome: z.string().optional()
         })
+      },
+      create_metric_note: {
+        name: "create_metric_note",
+        description: "Creates metric note. Required: title:str, numericValue:num, unit:str\nOptional: textValue:str, note:str, tags:str[], metadata:{privacyLevel:('public'|'private'|'sensitive'), effectiveness:1-5}",
+        inputSchema: CreateMetricNoteSchema
       }
+    }
+  }
+
+  async createMetricNote(args: unknown): Promise<ToolResponse> {
+    const parsed = CreateMetricNoteSchema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(`Invalid arguments for create_metric_note: ${parsed.error}`);
+    }
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const notePath = `metrics/${timestamp}-${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`;
+      const normalizedPath = normalizeNotePath(notePath);
+      const fullPath = path.join(this.vaultRoot, normalizedPath);
+      const validPath = await validatePath(fullPath, [this.vaultRoot]);
+
+      const content = `---
+title: ${parsed.data.title}
+created: ${today}
+modified: ${today}
+numericValue: ${parsed.data.numericValue}
+unit: ${parsed.data.unit}
+textValue: ${parsed.data.textValue || ''}
+tags: ${JSON.stringify(parsed.data.tags || [])}
+privacyLevel: ${parsed.data.metadata?.privacyLevel || 'private'}
+effectiveness: ${parsed.data.metadata?.effectiveness || 3}
+---
+
+# ${parsed.data.title}
+
+## Value
+- Numeric: ${parsed.data.numericValue} ${parsed.data.unit}
+${parsed.data.textValue ? `- Text: ${parsed.data.textValue}` : ''}
+
+## Note
+${parsed.data.note || 'No additional notes.'}
+
+## History
+<!-- Track value changes over time -->
+### ${today}
+- Initial value: ${parsed.data.numericValue} ${parsed.data.unit}
+${parsed.data.textValue ? `- Initial text: ${parsed.data.textValue}` : ''}
+`;
+
+      await fs.writeFile(validPath, content);
+
+      return {
+        content: [{
+          type: "text",
+          text: `Successfully created metric note: ${notePath}`
+        }]
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to create metric note: ${errorMessage}`);
     }
   }
 
