@@ -70,18 +70,38 @@ class MCPChatInterface:
                 session_id = sessions[session_num - 1]['session_id']
                 session = self.session_manager.load_session(session_id)
                 if session:
-                    self.console.print_message(f"Loaded session {session_num}")
+                    self.console.print_message({
+                        'content': f"Loaded session {session_num}",
+                        'role': 'system',
+                        'timestamp': '',
+                        'metadata': {}
+                    })
                     return True
             else:
-                self.console.print_message(f"Invalid session number. Please choose 1-{len(sessions)}")
+                self.console.print_message({
+                    'content': f"Invalid session number. Please choose 1-{len(sessions)}",
+                    'role': 'system',
+                    'timestamp': '',
+                    'metadata': {}
+                })
                 return False
         except ValueError:
             # If not a number, try loading by ID directly
             session = self.session_manager.load_session(session_identifier)
             if session:
-                self.console.print_message(f"Loaded session {session_identifier}")
+                self.console.print_message({
+                    'content': f"Loaded session {session_identifier}",
+                    'role': 'system',
+                    'timestamp': '',
+                    'metadata': {}
+                })
                 return True
-            self.console.print_message("Session not found")
+            self.console.print_message({
+                'content': "Session not found",
+                'role': 'system',
+                'timestamp': '',
+                'metadata': {}
+            })
             return False
 
     async def add_message(self, content: str, role: str = "user", cache: bool = False, update_prompts: bool = True):
@@ -162,23 +182,51 @@ class MCPChatInterface:
                     try:
                         content = pyperclip.paste()
                         if not content:
-                            self.console.print_message("Clipboard is empty")
+                            self.console.print_message({
+                                'content': "Clipboard is empty",
+                                'role': 'system',
+                                'timestamp': '',
+                                'metadata': {}
+                            })
                             continue
                             
                         if len(content) > 1000:
-                            self.console.print_message(
-                                f"Clipboard content is {len(content)} characters. Preview of first 100 characters:"
-                            )
-                            self.console.print_message(content[:100] + "...")
-                            self.console.print_message("Type 'y' to confirm paste, anything else to cancel:")
+                            self.console.print_message({
+                                'content': f"Clipboard content is {len(content)} characters. Preview of first 100 characters:",
+                                'role': 'system',
+                                'timestamp': '',
+                                'metadata': {}
+                            })
+                            self.console.print_message({
+                                'content': content[:100] + "...",
+                                'role': 'system',
+                                'timestamp': '',
+                                'metadata': {}
+                            })
+                            self.console.print_message({
+                                'content': "Type 'y' to confirm paste, anything else to cancel:",
+                                'role': 'system',
+                                'timestamp': '',
+                                'metadata': {}
+                            })
                             confirm = await loop.run_in_executor(None, input)
                             if confirm.lower() != 'y':
-                                self.console.print_message("Paste cancelled")
+                                self.console.print_message({
+                                    'content': "Paste cancelled",
+                                    'role': 'system',
+                                    'timestamp': '',
+                                    'metadata': {}
+                                })
                                 continue
                                 
                         await self.add_message(content)
                     except Exception as e:
-                        self.console.print_message(f"Error accessing clipboard: {str(e)}")
+                        self.console.print_message({
+                            'content': f"Error accessing clipboard: {str(e)}",
+                            'role': 'system',
+                            'timestamp': '',
+                            'metadata': {'error': str(e)}
+                        })
                     continue
                     
                 # Handle commands
@@ -202,12 +250,25 @@ class MCPChatInterface:
                                     session_id = sessions[num - 1]['session_id']
                                     if self.session_manager.archive_session(session_id):
                                         archived += 1
-                            self.console.print_message(f"Archived {archived} session(s)")
-                            self.console.print_message(
-                                "Sessions can be found in the chat_history/archived_sessions directory"
-                            )
+                            self.console.print_message({
+                                'content': f"Archived {archived} session(s)",
+                                'role': 'system',
+                                'timestamp': '',
+                                'metadata': {}
+                            })
+                            self.console.print_message({
+                                'content': "Sessions can be found in the chat_history/archived_sessions directory",
+                                'role': 'system',
+                                'timestamp': '',
+                                'metadata': {}
+                            })
                         except ValueError:
-                            self.console.print_message("Invalid session number format")
+                            self.console.print_message({
+                                'content': "Invalid session number format",
+                                'role': 'system',
+                                'timestamp': '',
+                                'metadata': {}
+                            })
                     elif cmd == 'load' and len(cmd_parts) > 1:
                         session_id = cmd_parts[1]
                         if self.load_session(session_id):
@@ -217,28 +278,63 @@ class MCPChatInterface:
                     elif cmd == 'doc' and len(cmd_parts) > 1:
                         content = cmd_parts[1]
                         await self.add_documentation(content)
-                        self.console.print_message("Documentation added with caching enabled")
+                        self.console.print_message({
+                            'content': "Documentation added with caching enabled",
+                            'role': 'system',
+                            'timestamp': '',
+                            'metadata': {}
+                        })
                     elif cmd == 'remove' and len(cmd_parts) > 1:
                         try:
                             count = int(cmd_parts[1])
                             if count <= 0:
-                                self.console.print_message("Number of turns must be positive")
+                                self.console.print_message({
+                                    'content': "Number of turns must be positive",
+                                    'role': 'system',
+                                    'timestamp': '',
+                                    'metadata': {}
+                                })
                             elif self.session_manager.remove_messages(count):
-                                self.console.print_message(f"Removed last {count} conversation turns")
+                                self.console.print_message({
+                                    'content': f"Removed last {count} conversation turns",
+                                    'role': 'system',
+                                    'timestamp': '',
+                                    'metadata': {}
+                                })
                             else:
-                                self.console.print_message("Not enough messages to remove")
+                                self.console.print_message({
+                                    'content': "Not enough messages to remove",
+                                    'role': 'system',
+                                    'timestamp': '',
+                                    'metadata': {}
+                                })
                         except ValueError:
-                            self.console.print_message("Invalid number format")
+                            self.console.print_message({
+                                'content': "Invalid number format",
+                                'role': 'system',
+                                'timestamp': '',
+                                'metadata': {}
+                            })
                     elif cmd == 'cache':
                         stats = self.cache_manager.get_cache_stats()
                         self.console.print_cache_stats(stats)
                     else:
-                        self.console.print_message("Unknown command")
+                        self.console.print_message({
+                            'content': "Unknown command",
+                            'role': 'system',
+                            'timestamp': '',
+                            'metadata': {}
+                        })
                 else:
                     await self.add_message(message)
                     
         except KeyboardInterrupt:
-            self.console.print_message("\nGoodbye!")
+            self.console.print_message({
+                'content': "\nGoodbye!",
+                'role': 'system',
+                'timestamp': '',
+                'metadata': {}
+            })
         finally:
             if self.session_manager.current_session:
                 self.session_manager.save_session()

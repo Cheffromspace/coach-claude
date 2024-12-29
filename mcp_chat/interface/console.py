@@ -15,26 +15,30 @@ class ConsoleInterface:
 
     def print_message(self, message):
         """Print a message to the console"""
-        timestamp = message.get('timestamp', '')
-        content = message.get('content', '')
-        role = message.get('role', 'user')
-        metadata = message.get('metadata', {})
-        
-        self.console.print(f"[bright_black][{timestamp}][/]", end=" ")
-        if role == "user":
-            self.console.print("You:", style="bright_blue", end=" ")
-        else:
-            self.console.print("Assistant:", style="bright_green", end=" ")
+        if isinstance(message, dict):
+            timestamp = message.get('timestamp', '')
+            content = message.get('content', '')
+            role = message.get('role', 'user')
+            metadata = message.get('metadata', {})
             
-        # Handle structured content
-        if isinstance(content, dict):
-            self.console.print(content.get('text', ''))
+            self.console.print(f"[bright_black][{timestamp}][/]", end=" ")
+            if role == "user":
+                self.console.print("You:", style="bright_blue", end=" ")
+            else:
+                self.console.print("Assistant:", style="bright_green", end=" ")
+                
+            # Handle structured content
+            if isinstance(content, dict):
+                self.console.print(content.get('text', ''))
+            else:
+                self.console.print(content)
+            
+            # Print metadata if debug mode
+            if metadata and os.getenv('MCP_DEBUG'):
+                self.console.print(f"[dim]Metadata: {json.dumps(metadata, indent=2)}[/]")
         else:
-            self.console.print(content)
-        
-        # Print metadata if debug mode
-        if metadata and os.getenv('MCP_DEBUG'):
-            self.console.print(f"[dim]Metadata: {json.dumps(metadata, indent=2)}[/]")
+            # Handle simple string messages
+            self.console.print(message)
 
     def print_sessions(self, sessions):
         """Print available sessions with numbers"""
