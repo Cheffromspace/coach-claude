@@ -1,42 +1,58 @@
 import { z } from "zod"
 
-// Full metadata schema for consolidation mode
-const ConsolidationMetadataSchema = z.object({
+// Metadata schema
+export const MetadataSchema = z.object({
   effectiveness: z.number().min(1).max(5).optional(),
-  trainingCategory: z.enum(['technique', 'insight', 'pattern', 'strategy']).optional(),
   privacyLevel: z.enum(['public', 'private', 'sensitive']).optional(),
-  qualityMarkers: z.array(z.enum(['verified', 'needs_review', 'consolidated', 'in_progress'])).optional(),
+  trainingCategory: z.enum(['technique', 'insight', 'pattern', 'strategy']).optional(),
+  qualityMarkers: z.array(z.string()).optional(),
   clusters: z.array(z.string()).optional(),
   patterns: z.array(z.string()).optional(),
-  relationships: z.array(z.string()).optional()
+  relationships: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional()
 })
 
-// Simplified metadata schema for session mode
-const SessionMetadataSchema = z.object({
-  effectiveness: z.number().min(1).max(5).optional(),
-  privacyLevel: z.enum(['public', 'private', 'sensitive']).optional()
-})
-
-// Session mode schemas
-export const CreateDailyLogSessionSchema = z.object({
-  mood: z.number().min(1).max(5),
-  energy: z.number().min(1).max(5),
-  sessionType: z.enum(["checkin", "deep_dive", "followup"]),
-  summary: z.string(),
-  keyTopics: z.array(z.string()).optional(),
+// Reflection schema
+export const CreateReflectionSchema = z.object({
+  title: z.string(),
+  period: z.string(),
+  focus_areas: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+  status: z.enum(['active', 'completed', 'archived']).default('active'),
+  progress_rating: z.number().min(1).max(5),
+  metadata: MetadataSchema.optional(),
+  key_observations: z.array(z.string()).optional(),
+  progress_analysis: z.array(z.string()).optional(),
+  challenges: z.array(z.string()).optional(),
   insights: z.array(z.string()).optional(),
-  actionItems: z.array(z.string()).optional(),
-  notes: z.array(z.string()).optional(),
-  metadata: SessionMetadataSchema.optional()
+  behavioral_patterns: z.array(z.string()).optional(),
+  tool_usage_patterns: z.array(z.string()).optional(),
+  success_patterns: z.array(z.string()).optional(),
+  growth_trajectory: z.array(z.string()).optional(),
+  strategy_evolution: z.array(z.string()).optional(),
+  action_items: z.array(z.string()).optional(),
+  supporting_evidence: z.array(z.string()).optional(),
+  connected_insights: z.array(z.string()).optional(),
+  similar_patterns: z.array(z.string()).optional(),
+  references: z.array(z.string()).optional()
 })
 
-// Consolidation mode schemas
-export const CreateDailyLogConsolidationSchema = z.object({
+// Daily log schema
+export const CreateDailyLogSchema = z.object({
   mood: z.number().min(1).max(5),
   energy: z.number().min(1).max(5),
-  focusAreas: z.array(z.string()).optional(),
-  sessionType: z.enum(["checkin", "deep_dive", "followup"]),
-  progressRating: z.number().min(1).max(5),
+  focus_areas: z.array(z.string()).optional(),
+  session_type: z.enum(["checkin", "deep_dive", "followup"]),
+  progress_rating: z.number().min(1).max(5),
+  metadata: z.object({
+    effectiveness: z.number().min(1).max(5),
+    trainingCategory: z.enum(['technique', 'insight', 'pattern', 'strategy']),
+    privacyLevel: z.enum(['public', 'private', 'sensitive']),
+    qualityMarkers: z.array(z.string()).optional(),
+    clusters: z.array(z.string()).optional(),
+    patterns: z.array(z.string()).optional(),
+    relationships: z.array(z.string()).optional()
+  }),
   summary: z.string(),
   keyTopics: z.array(z.string()).optional(),
   progressUpdates: z.array(z.string()).optional(),
@@ -44,161 +60,184 @@ export const CreateDailyLogConsolidationSchema = z.object({
   actionItems: z.array(z.string()).optional(),
   followupPoints: z.array(z.string()).optional(),
   notes: z.array(z.string()).optional(),
-  relatedNotes: z.array(z.string()).optional(),
-  metadata: ConsolidationMetadataSchema.optional()
+  relatedNotes: z.array(z.string()).optional()
 })
 
-// Session mode insight schema
-export const CreateInsightSessionSchema = z.object({
+// Insight schema
+export const CreateInsightSchema = z.object({
+  title: z.string(),
+  related_to: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+  status: z.enum(['active', 'archived']).default('active'),
+  impact_level: z.enum(['low', 'medium', 'high']).default('medium'),
+  metadata: z.object({
+    effectiveness: z.number().min(1).max(5),
+    trainingCategory: z.enum(['technique', 'insight', 'pattern', 'strategy']),
+    privacyLevel: z.enum(['public', 'private', 'sensitive']),
+    qualityMarkers: z.array(z.string()).optional(),
+    clusters: z.array(z.string()).optional(),
+    patterns: z.array(z.string()).optional(),
+    relationships: z.array(z.string()).optional()
+  }),
+  description: z.string(),
+  context: z.string().optional(),
+  impact: z.array(z.string()).optional(),
+  action_items: z.array(z.string()).optional(),
+  related_insights: z.array(z.string()).optional(),
+  pattern_recognition: z.array(z.string()).optional(),
+  evidence_examples: z.array(z.string()).optional(),
+  references: z.array(z.string()).optional()
+})
+
+// Goal schema
+export const GoalSchema = z.object({
+  id: z.string(),
   title: z.string(),
   description: z.string(),
-  actionItems: z.array(z.string()).optional(),
-  metadata: SessionMetadataSchema.optional()
+  type: z.enum(['outcome', 'process', 'identity']),
+  status: z.enum(['active', 'completed', 'abandoned']).default('active'),
+  targetDate: z.string().optional(),
+  metrics: z.array(z.string()),
+  relatedHabits: z.array(z.string()).optional(),
+  progress: z.array(z.object({
+    date: z.string(),
+    value: z.number(),
+    notes: z.string().optional()
+  })).optional(),
+  reflection: z.array(z.object({
+    date: z.string(),
+    content: z.string(),
+    insights: z.array(z.string()).optional()
+  })).optional(),
+  identity: z.string().optional(),
+  metadata: z.object({
+    created: z.string(),
+    modified: z.string(),
+    effectiveness: z.number().min(1).max(5),
+    priority: z.enum(['low', 'medium', 'high']).default('medium'),
+    tags: z.array(z.string()).optional(),
+    privacyLevel: z.enum(['public', 'private', 'sensitive']),
+    relationships: z.array(z.string()).optional()
+  })
 })
 
-// Consolidation mode insight schema
-export const CreateInsightConsolidationSchema = z.object({
+// Habit schema
+export const HabitSchema = z.object({
+  id: z.string(),
   title: z.string(),
-  relatedTo: z.array(z.string()).optional(),
-  description: z.string().optional(),
-  impact: z.array(z.string()).optional(),
-  actionItems: z.array(z.string()).optional(),
-  relatedInsights: z.array(z.string()).optional(),
-  links: z.array(z.string()).optional(),
-  status: z.enum(['active', 'archived', 'in_progress']).optional(),
-  impactLevel: z.enum(['low', 'medium', 'high']).optional(),
-  metadata: ConsolidationMetadataSchema.optional()
-})
-
-export const CreateReflectionArgsSchema = z.object({
-  title: z.string(),
-  period: z.enum(["daily", "weekly", "monthly"]),
-  focusAreas: z.array(z.string()).optional(),
-  observations: z.array(z.string()).optional(),
-  patterns: z.array(z.string()).optional(),
-  progress: z.array(z.string()).optional(),
-  challenges: z.array(z.string()).optional(),
-  nextSteps: z.array(z.string()).optional(),
-  relatedNotes: z.array(z.string()).optional(),
-  links: z.array(z.string()).optional(),
-  status: z.enum(['active', 'archived', 'in_progress']).optional(),
-  progressRating: z.number().min(1).max(5).optional(),
-  metadata: ConsolidationMetadataSchema.optional()
-})
-
-// New schema for consolidated knowledge
-export const CreateConsolidatedKnowledgeArgsSchema = z.object({
-  title: z.string(),
-  knowledgeType: z.enum(['pattern', 'strategy', 'trajectory']),
-  overview: z.string(),
-  sourceNotes: z.array(z.string()),
-  keyPatterns: z.array(z.string()),
-  supportingData: z.array(z.string()).optional(),
-  analysis: z.object({
-    patternDetails: z.array(z.string()),
-    contextFactors: z.array(z.string()),
-    impactAssessment: z.array(z.string())
-  }),
-  synthesis: z.object({
-    keyInsights: z.array(z.string()),
-    strategicImplications: z.array(z.string()),
-    growthIndicators: z.array(z.string()).optional()
-  }),
+  description: z.string(),
+  type: z.enum(['build', 'break']),
+  cue: z.string(),
+  craving: z.string(),
+  response: z.string(),
+  reward: z.string(),
   implementation: z.object({
-    steps: z.array(z.string()),
-    successMetrics: z.array(z.string()).optional(),
-    riskFactors: z.array(z.string()).optional()
+    frequency: z.enum(['daily', 'weekly', 'custom']),
+    timeOfDay: z.string().optional(),
+    location: z.string().optional(),
+    duration: z.string().optional()
   }),
-  relationships: z.object({
-    relatedPatterns: z.array(z.string()).optional(),
-    connectedStrategies: z.array(z.string()).optional(),
-    historicalContext: z.array(z.string()).optional()
+  tracking: z.object({
+    streaks: z.object({
+      current: z.number(),
+      longest: z.number(),
+      history: z.array(z.object({
+        start: z.string(),
+        end: z.string().optional()
+      }))
+    }),
+    completion_history: z.array(z.object({
+      date: z.string(),
+      completed: z.boolean(),
+      notes: z.string().optional()
+    })),
+    obstacles: z.array(z.object({
+      date: z.string(),
+      description: z.string(),
+      solution: z.string().optional()
+    })).optional(),
+    adaptations: z.array(z.object({
+      date: z.string(),
+      change: z.string(),
+      reason: z.string(),
+      outcome: z.string().optional()
+    })).optional()
   }),
-  status: z.enum(['active', 'archived', 'in_progress']).optional(),
-  metadata: ConsolidationMetadataSchema
+  stacking: z.object({
+    after: z.array(z.string()).optional(),
+    before: z.array(z.string()).optional()
+  }).optional(),
+  metrics: z.array(z.object({
+    name: z.string(),
+    target: z.string(),
+    current: z.string().optional()
+  })).optional(),
+  metadata: z.object({
+    created: z.string(),
+    modified: z.string(),
+    effectiveness: z.number().min(1).max(5),
+    difficulty: z.number().min(1).max(5),
+    tags: z.array(z.string()).optional(),
+    privacyLevel: z.enum(['public', 'private', 'sensitive']),
+    relationships: z.array(z.string()).optional()
+  })
 })
 
-// New schema for training examples
-export const CreateTrainingExampleArgsSchema = z.object({
-  title: z.string(),
-  category: z.enum(['pattern_recognition', 'tool_usage', 'intervention']),
-  context: z.object({
-    situation: z.string(),
-    userState: z.string(),
-    relevantHistory: z.array(z.string()).optional()
-  }),
-  interaction: z.object({
-    initialInput: z.string(),
-    approachUsed: z.array(z.string()),
-    toolUsage: z.array(z.string()).optional(),
-    keyMoments: z.array(z.string())
-  }),
-  outcomes: z.object({
-    immediateResults: z.string(),
-    userResponse: z.string(),
-    followupEffects: z.array(z.string()).optional()
-  }),
-  analysis: z.object({
-    successFactors: z.array(z.string()),
-    challengesFaced: z.array(z.string()),
-    patternRecognition: z.array(z.string())
-  }),
-  learningPoints: z.object({
-    effectiveStrategies: z.array(z.string()),
-    areasForImprovement: z.array(z.string()).optional(),
-    adaptabilityNotes: z.array(z.string()).optional()
-  }),
-  relationships: z.object({
-    similarCases: z.array(z.string()).optional(),
-    relatedPatterns: z.array(z.string()).optional(),
-    connectedInsights: z.array(z.string()).optional()
-  }),
-  status: z.enum(['active', 'archived', 'in_progress']).optional(),
-  metadata: ConsolidationMetadataSchema
+// Create schemas that extend the base schemas with required fields for creation
+export const CreateGoalSchema = GoalSchema.omit({ 
+  id: true,
+  metadata: true 
+}).extend({
+  metadata: MetadataSchema.extend({
+    created: z.string(),
+    modified: z.string(),
+    priority: z.enum(['low', 'medium', 'high']).default('medium')
+  }).optional()
 })
 
-// Existing utility schemas
+export const CreateHabitSchema = HabitSchema.omit({ 
+  id: true,
+  metadata: true,
+  tracking: true 
+}).extend({
+  metadata: MetadataSchema.extend({
+    created: z.string(),
+    modified: z.string(),
+    difficulty: z.number().min(1).max(5)
+  }).optional(),
+  tracking: z.object({
+    streaks: z.object({
+      current: z.number().default(0),
+      longest: z.number().default(0),
+      history: z.array(z.object({
+        start: z.string(),
+        end: z.string().optional()
+      })).default([])
+    }).optional(),
+    completion_history: z.array(z.object({
+      date: z.string(),
+      completed: z.boolean(),
+      notes: z.string().optional()
+    })).default([]),
+    obstacles: z.array(z.object({
+      date: z.string(),
+      description: z.string(),
+      solution: z.string().optional()
+    })).optional(),
+    adaptations: z.array(z.object({
+      date: z.string(),
+      change: z.string(),
+      reason: z.string(),
+      outcome: z.string().optional()
+    })).optional()
+  }).optional()
+})
+
+// Utility schemas
 export const ReadNotesArgsSchema = z.object({
   paths: z.array(z.string())
 })
 
-export const WriteNoteArgsSchema = z.object({
-  path: z.string(),
-  content: z.string()
-})
-
 export const QueryNotesArgsSchema = z.object({
-  query: z.string().optional(),
-  from: z.string().optional(),
-  where: z.record(z.any()).optional(),
-  sort: z.string().optional(),
-  limit: z.number().optional(),
-  fields: z.array(z.string()).optional(),
-  format: z.enum(["table", "list"]).default("table")
+  query: z.string()
 })
-
-// New schema for pattern detection
-export const QueryPatternsArgsSchema = z.object({
-  noteTypes: z.array(z.enum(['daily_log', 'insight', 'reflection', 'consolidated', 'training_example'])),
-  timeRange: z.object({
-    start: z.string().optional(),
-    end: z.string().optional()
-  }).optional(),
-  categories: z.array(z.string()).optional(),
-  minOccurrences: z.number().optional(),
-  metadata: ConsolidationMetadataSchema.optional()
-})
-
-// Type guards for mode-specific schemas
-export const isSessionMode = (mode: string): mode is 'session' => mode === 'session'
-
-// Combined schemas with discriminator
-export const CreateDailyLogArgsSchema = z.discriminatedUnion('mode', [
-  CreateDailyLogSessionSchema.extend({ mode: z.literal('session') }),
-  CreateDailyLogConsolidationSchema.extend({ mode: z.literal('consolidation') })
-])
-
-export const CreateInsightArgsSchema = z.discriminatedUnion('mode', [
-  CreateInsightSessionSchema.extend({ mode: z.literal('session') }),
-  CreateInsightConsolidationSchema.extend({ mode: z.literal('consolidation') })
-])

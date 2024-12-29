@@ -13,9 +13,8 @@ export class ObsidianServer {
   private server: Server
   private toolHandlers: ToolHandlers
 
-  constructor(private vaultDirectories: string[], mode: 'session' | 'consolidation' = 'session') {
+  constructor(private vaultDirectories: string[]) {
     this.toolHandlers = new ToolHandlers(vaultDirectories[0])
-    this.toolHandlers.setMode(mode)
 
     this.server = new Server(
       {
@@ -51,24 +50,28 @@ export class ObsidianServer {
         const { name, arguments: args } = request.params
 
         switch (name) {
+          case "create_reflection":
+            return await this.toolHandlers.createReflection(args)
           case "create_daily_log":
             return await this.toolHandlers.createDailyLog(args)
           case "create_insight":
             return await this.toolHandlers.createInsight(args)
-          case "create_reflection":
-            return await this.toolHandlers.createReflection(args)
-          case "list_templates":
-            return await this.toolHandlers.listTemplates(args)
-          case "create_from_template":
-            return await this.toolHandlers.createFromTemplate(args)
           case "read_notes":
             return await this.toolHandlers.readNotes(args)
           case "search_notes":
             return await this.toolHandlers.searchNotes(args)
-          case "write_note":
-            return await this.toolHandlers.writeNote(args)
           case "query_notes":
             return await this.toolHandlers.queryNotes(args)
+          case "discover_vault":
+            return await this.toolHandlers.discoverVault(args)
+          case "create_goal":
+            return await this.toolHandlers.createGoal(args)
+          case "create_habit":
+            return await this.toolHandlers.createHabit(args)
+          case "update_goal_status":
+            return await this.toolHandlers.updateGoalStatus(args)
+          case "update_habit_tracking":
+            return await this.toolHandlers.updateHabitTracking(args)
           default:
             throw new Error(`Unknown tool: ${name}`)
         }

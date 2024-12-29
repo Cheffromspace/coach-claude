@@ -4,24 +4,18 @@ import path from "path"
 import {
   validatePath,
   normalizeNotePath,
-  readTemplate,
-  substituteVariables,
   readNote
 } from "./utils.js"
 import {
-  CreateDailyLogArgsSchema,
-  CreateInsightArgsSchema,
-  CreateReflectionArgsSchema,
-  CreateConsolidatedKnowledgeArgsSchema,
-  CreateTrainingExampleArgsSchema,
+  CreateDailyLogSchema,
+  CreateInsightSchema,
+  CreateReflectionSchema,
   ReadNotesArgsSchema,
-  WriteNoteArgsSchema,
   QueryNotesArgsSchema,
-  QueryPatternsArgsSchema
+  CreateGoalSchema,
+  CreateHabitSchema
 } from "./schemas.js"
-import { parseDataviewQuery, executeQuery } from "./query-engine.js"
-
-export type ServerMode = 'session' | 'consolidation'
+import { parseDataviewQuery, executeQuery, getMarkdownFiles } from "./query-engine.js"
 
 interface Section {
   title: string;
@@ -38,22 +32,34 @@ type ToolResponse = {
 };
 
 export class ToolHandlers {
-  private mode: ServerMode = 'session'
-
   constructor(private vaultRoot: string) {}
 
-  setMode(mode: ServerMode): void {
-    this.mode = mode
-  }
-
   getToolDefinitions() {
-    const baseTools = {
+    return {
+      create_reflection: {
+        name: "create_reflection",
+        description: "Creates a reflection note analyzing progress and insights. Required: title (string), period (string), progress_rating (1-5). Optional fields in groups:\n" +
+          "- Context: focus_areas[], tags[], status ('active'|'completed'|'archived')\n" +
+          "- Analysis: key_observations[], progress_analysis[], challenges[], insights[]\n" +
+          "- Patterns: behavioral[], tool_usage[], success[], growth_trajectory[]\n" +
+          "- Planning: strategy_evolution[], action_items[]\n" +
+          "- References: supporting_evidence[], connected_insights[], similar_patterns[], references[]",
+        example: {
+          title: "Q1 2024 Progress Review",
+          period: "2024 Q1",
+          progress_rating: 4,
+          focus_areas: ["Tool Development", "Pattern Recognition"],
+          status: "active",
+          metadata: {
+            effectiveness: 4,
+            trainingCategory: "pattern"
+          }
+        },
+        inputSchema: CreateReflectionSchema
+      },
       read_notes: {
         name: "read_notes",
-        description: "Reads the full content of specified notes. Required fields:\n" +
-          "- paths: string[] - Array of note paths relative to the vault root\n" +
-          "Returns the complete content of each requested note.\n" +
-          "Note: Paths should include the .md extension",
+        description: "Reads full content of specified notes. Required: paths[] (note paths relative to vault root, include .md extension)",
         example: {
           paths: [
             "daily_logs/2024-03-19.md",
@@ -62,33 +68,11 @@ export class ToolHandlers {
         },
         inputSchema: ReadNotesArgsSchema
       },
-      write_note: {
-        name: "write_note",
-        description: "Creates or updates a note at the specified path. Required fields:\n" +
-          "- path: string - Target path relative to vault root (include .md extension)\n" +
-          "- content: string - Complete content for the note\n" +
-          "Note: Automatically creates any necessary directories in the path",
-        example: {
-          path: "projects/web-app/architecture.md",
-          content: "# Web Application Architecture\n\n" +
-            "## Overview\n" +
-            "Key architectural decisions and component relationships.\n\n" +
-            "## Components\n" +
-            "- Frontend: React with TypeScript\n" +
-            "- Backend: Node.js Express API\n" +
-            "- Database: PostgreSQL"
-        },
-        inputSchema: WriteNoteArgsSchema
-      },
       search_notes: {
         name: "search_notes",
-        description: "Performs a regex-based full-text search across all markdown files. Required fields:\n" +
-          "- pattern: string - Regular expression pattern to search for\n" +
-          "Optional fields:\n" +
-          "- caseSensitive: boolean - Whether to perform case-sensitive search (default: false)\n" +
-          "Returns matches with surrounding context for better understanding",
+        description: "Searches all markdown files using regex. Required: pattern (regex string). Optional: caseSensitive (boolean, default false). Returns matches with context.",
         example: {
-          pattern: "\\b(API|REST)\\b", // Matches whole words API or REST
+          pattern: "\\b(API|REST)\\b",
           caseSensitive: true
         },
         inputSchema: z.object({
@@ -96,1024 +80,758 @@ export class ToolHandlers {
           caseSensitive: z.boolean().optional()
         })
       },
-      list_templates: {
-        name: "list_templates",
-        description: "Lists all available note templates in the templates directory.\n" +
-          "No arguments required.\n" +
-          "Returns an array of template filenames that can be used as references for creating new notes.",
-        example: {}, // Empty object since no args needed
-        inputSchema: z.object({})
-      }
-    }
-
-    // Session mode tools
-    if (this.mode === 'session') {
-      return {
-        ...baseTools,
-        create_daily_log: {
-          name: "create_daily_log",
-          description: "Creates a daily log entry in the daily_logs directory. Required fields:\n" +
-            "- mood: number (1-5) representing overall mood\n" +
-            "- energy: number (1-5) representing energy level\n" +
-            "- sessionType: one of ['checkin', 'deep_dive', 'followup']\n" +
-            "- summary: string describing the session\n" +
-            "Optional fields:\n" +
-            "- keyTopics[]: key discussion points\n" +
-            "- insights[]: new realizations or learnings\n" +
-            "- actionItems[]: tasks to be completed\n" +
-            "- notes[]: additional observations",
-          example: {
-            mode: "session",
-            mood: 4,
-            energy: 3,
-            sessionType: "deep_dive",
-            summary: "Productive session focused on project planning",
-            keyTopics: ["architecture", "timeline"],
-            actionItems: ["Create initial wireframes", "Set up development environment"]
-          },
-          inputSchema: CreateDailyLogArgsSchema
-        },
-        create_insight: {
-          name: "create_insight",
-          description: "Creates an insight entry in the insights directory. Required fields:\n" +
-            "- title: string\n" +
-            "- description: string\n" +
-            "Optional fields:\n" +
-            "- actionItems[]: tasks or next steps",
-          example: {
-            mode: "session",
-            title: "Effective Communication Pattern",
-            description: "Clear, direct communication leads to better outcomes",
-            actionItems: ["Document communication guidelines", "Share with team"]
-          },
-          inputSchema: CreateInsightArgsSchema
-        }
-      }
-    }
-
-    // Consolidation mode tools
-    return {
-      ...baseTools,
       create_daily_log: {
         name: "create_daily_log",
-        description: "Creates a daily log entry in the daily_logs directory. Required fields:\n" +
-          "- mood: number (1-5) representing overall mood\n" +
-          "- energy: number (1-5) representing energy level\n" +
-          "- sessionType: one of ['checkin', 'deep_dive', 'followup']\n" +
-          "- summary: string describing the session\n" +
-          "- progressRating: number (1-5)\n" +
-          "Optional fields:\n" +
-          "- focusAreas[]: specific areas of concentration\n" +
-          "- progressUpdates[]: status updates\n" +
-          "- followupPoints[]: items needing follow-up\n" +
-          "- relatedNotes[]: links to related content",
+        description: "Creates daily log entry. Required: mood (1-5), energy (1-5), session_type ('checkin'|'deep_dive'|'followup'), progress_rating (1-5), metadata (effectiveness, trainingCategory, privacyLevel), summary. Optional fields in groups:\n" +
+          "- Context: focus_areas[], keyTopics[]\n" +
+          "- Progress: progressUpdates[], insights[], actionItems[]\n" +
+          "- Follow-up: followupPoints[], notes[], relatedNotes[]\n" +
+          "- Metadata: qualityMarkers[], clusters[], patterns[], relationships[]",
         example: {
-          mode: "consolidation",
           mood: 4,
           energy: 3,
-          sessionType: "deep_dive",
-          summary: "Deep analysis of recent patterns",
-          progressRating: 4,
-          focusAreas: ["Pattern Analysis", "Strategy Development"],
-          progressUpdates: ["Identified key patterns", "Developed action plan"],
-          relatedNotes: ["patterns/problem-solving", "strategies/implementation"]
+          session_type: "deep_dive",
+          progress_rating: 4,
+          metadata: {
+            effectiveness: 4,
+            trainingCategory: "technique",
+            privacyLevel: "private",
+            qualityMarkers: ["clear_communication", "actionable_outcomes"]
+          },
+          focus_areas: ["Project Planning", "Architecture"],
+          summary: "Productive session focused on project planning",
+          keyTopics: ["System Architecture", "Development Timeline"],
+          progressUpdates: ["Completed initial research phase"],
+          actionItems: ["Create initial wireframes", "Set up development environment"],
+          followupPoints: ["Review architecture decisions next session"]
         },
-        inputSchema: CreateDailyLogArgsSchema
+        inputSchema: CreateDailyLogSchema
       },
       create_insight: {
         name: "create_insight",
-        description: "Creates an insight entry in the insights directory. Required fields:\n" +
-          "- title: string\n" +
-          "- description: string\n" +
-          "Optional fields:\n" +
-          "- relatedTo[]: connected topics or areas\n" +
-          "- impact[]: effect on processes or outcomes\n" +
-          "- actionItems[]: tasks or next steps\n" +
-          "- relatedInsights[]: linked insights\n" +
-          "- links[]: external references\n" +
-          "- status: one of ['active', 'archived', 'in_progress']\n" +
-          "- impactLevel: one of ['low', 'medium', 'high']",
+        description: "Creates insight entry. Required: title, description, metadata (effectiveness, trainingCategory, privacyLevel). Optional fields in groups:\n" +
+          "- Context: related_to[], tags[], status ('active'|'archived'), impact_level ('low'|'medium'|'high')\n" +
+          "- Analysis: context, impact[], action_items[]\n" +
+          "- Connections: related_insights[], pattern_recognition[], evidence_examples[], references[]\n" +
+          "- Metadata: qualityMarkers[], clusters[], patterns[], relationships[]",
         example: {
-          mode: "consolidation",
-          title: "Pattern: Iterative Problem Solving",
-          description: "Breaking down complex problems into smaller, manageable steps leads to better solutions",
-          impactLevel: "high",
-          relatedTo: ["project planning", "development workflow"],
-          actionItems: ["Document approach in team guidelines", "Create training examples"]
+          title: "Effective Pattern Recognition",
+          description: "Systematic approach to identifying recurring patterns leads to better insights",
+          status: "active",
+          impact_level: "high",
+          metadata: {
+            effectiveness: 4,
+            trainingCategory: "pattern",
+            privacyLevel: "public",
+            qualityMarkers: ["clear_pattern", "actionable"]
+          },
+          impact: ["Improves decision making", "Enables proactive responses"],
+          action_items: ["Document pattern recognition process", "Create pattern template"]
         },
-        inputSchema: CreateInsightArgsSchema
+        inputSchema: CreateInsightSchema
       },
-      create_consolidated_knowledge: {
-        name: "create_consolidated_knowledge",
-        description: "Creates a consolidated knowledge entry that synthesizes patterns and strategies. Required fields:\n" +
-          "- title: string - Name of the consolidated knowledge entry\n" +
-          "- knowledgeType: one of ['pattern', 'strategy', 'trajectory']\n" +
-          "- overview: string - High-level description\n" +
-          "- sourceNotes: string[] - References to source material\n" +
-          "- keyPatterns: string[] - Core patterns identified\n" +
-          "- analysis: object containing:\n" +
-          "  - patternDetails: string[] - Detailed pattern descriptions\n" +
-          "  - contextFactors: string[] - Relevant contextual elements\n" +
-          "  - impactAssessment: string[] - Impact evaluation\n" +
-          "- synthesis: object containing:\n" +
-          "  - keyInsights: string[] - Main takeaways\n" +
-          "  - strategicImplications: string[] - Strategic considerations\n" +
-          "- implementation: object containing:\n" +
-          "  - steps: string[] - Action items for implementation",
+      query_notes: {
+        name: "query_notes",
+        description: "Query notes using Dataview syntax (e.g. 'FROM \"insights\" WHERE status=active SORT date LIMIT 5')",
         example: {
-          title: "Effective Problem Resolution Pattern",
-          knowledgeType: "pattern",
-          overview: "A systematic approach to resolving complex technical challenges",
-          sourceNotes: ["daily_logs/2024-03-15", "insights/debugging-workflow"],
-          keyPatterns: ["systematic debugging", "root cause analysis"],
-          analysis: {
-            patternDetails: ["Start with reproduction steps", "Isolate variables"],
-            contextFactors: ["System complexity", "Time constraints"],
-            impactAssessment: ["Reduced resolution time", "Improved accuracy"]
-          },
-          synthesis: {
-            keyInsights: ["Systematic approach yields consistent results"],
-            strategicImplications: ["Train team on methodology"]
-          },
-          implementation: {
-            steps: ["Document current state", "Create debug checklist"]
+          query: "FROM \"insights\" WHERE status=active SORT date LIMIT 5"
+        },
+        inputSchema: QueryNotesArgsSchema
+      },
+      discover_vault: {
+        name: "discover_vault",
+        description: "Analyze vault structure to discover available folders and fields for querying",
+        example: {},
+        inputSchema: z.object({})
+      },
+      create_goal: {
+        name: "create_goal",
+        description: "Creates a goal entry incorporating identity-based habits principles. Required: title, description, type ('outcome'|'process'|'identity'), metrics[]. Optional fields in groups:\n" +
+          "- Context: targetDate, relatedHabits[], identity\n" +
+          "- Progress: progress[], reflection[]\n" +
+          "- Metadata: priority ('low'|'medium'|'high'), tags[], privacyLevel",
+        example: {
+          title: "Master TypeScript Development",
+          description: "Become proficient in TypeScript for better code quality",
+          type: "process",
+          metrics: ["Complete TypeScript course", "Convert 3 projects to TypeScript"],
+          identity: "I am a developer who values type safety",
+          metadata: {
+            priority: "high",
+            tags: ["development", "learning"]
           }
         },
-        inputSchema: CreateConsolidatedKnowledgeArgsSchema
+        inputSchema: CreateGoalSchema
       },
-      query_patterns: {
-        name: "query_patterns",
-        description: "Analyzes notes to identify recurring patterns. Required fields:\n" +
-          "- noteTypes: Array of ['daily_log', 'insight', 'reflection', 'consolidated', 'training_example']\n" +
-          "Optional fields:\n" +
-          "- timeRange: object with optional start and end dates\n" +
-          "- categories: string[] - Filter by training categories\n" +
-          "- minOccurrences: number - Minimum pattern frequency\n" +
-          "- metadata: object - Additional metadata filters\n" +
-          "Returns analysis of behavioral, tool usage, and success patterns",
+      create_habit: {
+        name: "create_habit",
+        description: "Creates a habit entry using Atomic Habits framework. Required: title, description, type ('build'|'break'), cue, craving, response, reward, implementation.frequency. Optional fields in groups:\n" +
+          "- Implementation: timeOfDay, location, duration\n" +
+          "- Tracking: streaks, completion_history, obstacles, adaptations\n" +
+          "- Stacking: before[], after[]\n" +
+          "- Metadata: difficulty (1-5), tags[], privacyLevel",
         example: {
-          noteTypes: ["daily_log", "insight"],
-          timeRange: {
-            start: "2024-01-01",
-            end: "2024-03-20"
+          title: "Morning Code Review",
+          description: "Review code first thing each morning",
+          type: "build",
+          cue: "Arriving at desk with morning coffee",
+          craving: "Feeling prepared and proactive",
+          response: "Open GitHub PRs and spend 30 mins reviewing",
+          reward: "Satisfaction of helping team and learning",
+          implementation: {
+            frequency: "daily",
+            timeOfDay: "9:00 AM",
+            duration: "30 minutes"
           },
-          categories: ["technique", "pattern"],
-          minOccurrences: 3
+          metadata: {
+            difficulty: 3,
+            tags: ["development", "team"]
+          }
         },
-        inputSchema: QueryPatternsArgsSchema
+        inputSchema: CreateHabitSchema
+      },
+      update_goal_status: {
+        name: "update_goal_status",
+        description: "Updates goal progress and status. Required: title, update_type ('progress'|'reflection'|'status'). Fields by update_type:\n" +
+          "- progress: value (number), notes (optional)\n" +
+          "- reflection: content, insights[] (optional)\n" +
+          "- status: new_status ('active'|'completed'|'abandoned')",
+        example: {
+          title: "Master TypeScript Development",
+          update_type: "progress",
+          value: 75,
+          notes: "Completed advanced TypeScript course modules"
+        },
+        inputSchema: z.object({
+          title: z.string(),
+          update_type: z.enum(['progress', 'reflection', 'status']),
+          value: z.number().optional(),
+          notes: z.string().optional(),
+          content: z.string().optional(),
+          insights: z.array(z.string()).optional(),
+          new_status: z.enum(['active', 'completed', 'abandoned']).optional()
+        })
+      },
+      update_habit_tracking: {
+        name: "update_habit_tracking",
+        description: "Updates habit tracking information. Required: title, update_type ('completion'|'obstacle'|'adaptation'). Fields by update_type:\n" +
+          "- completion: completed (boolean), notes (optional)\n" +
+          "- obstacle: description, solution (optional)\n" +
+          "- adaptation: change, reason, outcome (optional)",
+        example: {
+          title: "Morning Code Review",
+          update_type: "completion",
+          completed: true,
+          notes: "Reviewed 3 PRs and provided detailed feedback"
+        },
+        inputSchema: z.object({
+          title: z.string(),
+          update_type: z.enum(['completion', 'obstacle', 'adaptation']),
+          completed: z.boolean().optional(),
+          notes: z.string().optional(),
+          description: z.string().optional(),
+          solution: z.string().optional(),
+          change: z.string().optional(),
+          reason: z.string().optional(),
+          outcome: z.string().optional()
+        })
       }
     }
   }
 
-  private validateModeAccess(tool: string): void {
-    const SESSION_MODE_TOOLS = [
-      'create_daily_log',
-      'create_insight', 
-      'read_notes',
-      'write_note',
-      'search_notes',
-      'list_templates'
-    ]
+  async updateGoalStatus(args: unknown): Promise<ToolResponse> {
+    const parsed = z.object({
+      title: z.string(),
+      update_type: z.enum(['progress', 'reflection', 'status']),
+      value: z.number().optional(),
+      notes: z.string().optional(),
+      content: z.string().optional(),
+      insights: z.array(z.string()).optional(),
+      new_status: z.enum(['active', 'completed', 'abandoned']).optional()
+    }).safeParse(args)
 
-    if (this.mode === 'session' && !SESSION_MODE_TOOLS.includes(tool)) {
-      throw new Error(`Tool ${tool} is not available in session mode`)
-    }
-  }
-
-  private assertParsedData<T>(parsed: z.SafeParseReturnType<any, T>): asserts parsed is { success: true; data: T } {
     if (!parsed.success) {
-      throw new Error(`Invalid arguments: ${parsed.error}`)
-    }
-  }
-
-  private handleError(error: unknown, operation: string): never {
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    throw new Error(`Failed to ${operation}: ${errorMessage}`)
-  }
-
-  async createDailyLog(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
-    this.validateModeAccess('create_daily_log')
-    const parsed = CreateDailyLogArgsSchema.safeParse({
-      mode: this.mode,
-      ...(args as object)
-    })
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_daily_log: ${parsed.error}`)
+      throw new Error(`Invalid arguments for update_goal_status: ${parsed.error}`)
     }
 
     try {
-      const now = new Date()
-      const today = now.toISOString().split('T')[0]
-      const timestamp = now.toISOString().replace(/[:.]/g, '-')
-      const data = parsed.data
+      const today = new Date().toISOString().split('T')[0]
+      const notePath = `goals/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`
+      const normalizedPath = normalizeNotePath(notePath)
+      const fullPath = path.join(this.vaultRoot, normalizedPath)
+      const validPath = await validatePath(fullPath, [this.vaultRoot])
 
-      // Base variables for both modes
-      const variables = {
-        date: today,
-        title: `Daily Log ${today}`,
-        mood: String(data.mood),
-        energy: String(data.energy),
-        session_type: data.sessionType,
-        summary: data.summary || "",
-      }
+      // Read existing note
+      const content = await fs.readFile(validPath, 'utf-8')
+      const [frontmatter, ...bodyParts] = content.split('---\n').filter(Boolean)
+      const body = bodyParts.join('---\n')
 
-      // Add mode-specific variables
-      if (data.mode === 'consolidation') {
-        Object.assign(variables, {
-          focus_areas: data.focusAreas?.join(", ") || "[]",
-          progress_rating: String(data.progressRating)
-        })
-      }
-
-      // Read template and get just the content part (after frontmatter)
-      const templateContent = await readTemplate(this.vaultRoot, 'daily_log.md')
-      const contentStart = templateContent.indexOf('---\n', templateContent.indexOf('---\n') + 4) + 4
-      const content = templateContent.slice(contentStart)
-
-      // Create frontmatter based on mode
-      let processedContent = `---
-title: Daily Log ${today}
-date: ${today}
-date_based_filename: ${today}.md
-type: daily_log
-tags: []
-mood: ${data.mood}
-energy: ${data.energy}
-session_type: ${data.sessionType}
-${data.mode === 'consolidation' ? `focus_areas: [${data.focusAreas?.join(", ") || ""}]
-progress_rating: ${data.progressRating}` : ''}
-${data.metadata ? `metadata:
-  effectiveness: ${data.metadata.effectiveness || ""}
-  privacyLevel: ${data.metadata.privacyLevel || ""}
-  ${data.mode === 'consolidation' ? `trainingCategory: ${data.metadata.trainingCategory || ""}
-  qualityMarkers: [${data.metadata.qualityMarkers?.map(m => `"${m}"`).join(", ") || ""}]
-  clusters: [${data.metadata.clusters?.map(c => `"${c}"`).join(", ") || ""}]
-  patterns: [${data.metadata.patterns?.map(p => `"${p}"`).join(", ") || ""}]
-  relationships: [${data.metadata.relationships?.map(r => `"${r}"`).join(", ") || ""}]` : ''}` : ""}
----
-
-`
-
-      // Add summary
-      processedContent += content.replace('<!-- Brief overview of the coaching session -->', parsed.data.summary || '')
-
-      // Add key topics for both modes
-      if (data.keyTopics?.length) {
-        processedContent = processedContent.replace('- \n', data.keyTopics.map(topic => `- ${topic}`).join('\n') + '\n')
-      }
-
-      // Add progress updates for consolidation mode
-      if (data.mode === 'consolidation' && data.progressUpdates?.length) {
-        processedContent = processedContent.replace('- [ ] \n', data.progressUpdates.map(item => `- [ ] ${item}`).join('\n') + '\n')
-      }
-
-      // Add common sections for both modes
-      const sections: Section[] = [
-        {
-          title: '## New Insights',
-          items: data.insights,
-          prefix: '- ',
-          suffix: ''
-        },
-        {
-          title: '## Action Items',
-          items: [...(data.actionItems || []), `Consolidate daily logs during next consolidation period`],
-          prefix: '- [ ] ',
-          suffix: ''
-        },
-        {
-          title: '## Notes',
-          items: data.notes,
-          prefix: '- ',
-          suffix: ''
-        }
-      ]
-
-      // Add consolidation mode sections
-      if (data.mode === 'consolidation') {
-        sections.push(
-          {
-            title: '## Follow-up Points',
-            items: data.followupPoints,
-            prefix: '- ',
-            suffix: ''
-          },
-          {
-            title: '## Related Notes',
-            items: data.relatedNotes,
-            prefix: '- [[',
-            suffix: ']]'
-          }
+      // Update frontmatter based on update type
+      let updatedFrontmatter = frontmatter
+      if (parsed.data.update_type === 'status' && parsed.data.new_status) {
+        updatedFrontmatter = frontmatter.replace(
+          /status: .*$/m,
+          `status: ${parsed.data.new_status}`
         )
       }
 
-      // Process all sections
-      for (const section of sections) {
-        if (section.items?.length) {
-          const sectionStart = processedContent.indexOf(section.title)
-          const nextSection = processedContent.indexOf('##', sectionStart + 1)
-          const content = section.items.map(item => 
-            `${section.prefix}${item}${section.suffix || ''}`
-          ).join('\n')
-          
-          processedContent = processedContent.slice(0, sectionStart) +
-            `${section.title}\n${content}\n\n` +
-            (nextSection > -1 ? processedContent.slice(nextSection) : '')
-        }
-      }
-
-      // Write the processed content to file using timestamp-based filename
-      const notePath = `daily_logs/${timestamp}.md`
-      const normalizedPath = normalizeNotePath(notePath)
-      const fullPath = path.join(this.vaultRoot, normalizedPath)
-      const validPath = await validatePath(fullPath, [this.vaultRoot])
-
-      await fs.mkdir(path.dirname(validPath), { recursive: true })
-      await fs.writeFile(validPath, processedContent, "utf-8")
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Successfully created daily log at ${normalizedPath}`,
-          },
-        ],
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to create daily log: ${errorMessage}`)
-    }
-  }
-
-  async createInsight(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
-    this.validateModeAccess('create_insight')
-    const parsed = CreateInsightArgsSchema.safeParse({
-      mode: this.mode,
-      ...(args as object)
-    })
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_insight: ${parsed.error}`)
-    }
-
-    try {
-      const today = new Date().toISOString().split('T')[0]
-      const notePath = `insights/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`
-      const normalizedPath = normalizeNotePath(notePath)
-      const fullPath = path.join(this.vaultRoot, normalizedPath)
-      const validPath = await validatePath(fullPath, [this.vaultRoot])
-
+      // Update appropriate section based on update type
+      let updatedBody = body
       const data = parsed.data
       
-      // Create content based on mode
-      let content = `---
-title: ${data.title}
-date: ${today}
-type: insight
-${data.mode === 'consolidation' ? `related_to: [${data.relatedTo?.map(item => `[[${item}]]`).join(", ") || ""}]
-status: ${data.status || "active"}
-impact_level: ${data.impactLevel || "medium"}` : ''}
-tags: []
-${data.metadata ? `metadata:
-  effectiveness: ${data.metadata.effectiveness || ""}
-  privacyLevel: ${data.metadata.privacyLevel || ""}
-  ${data.mode === 'consolidation' ? `trainingCategory: ${data.metadata.trainingCategory || ""}
-  qualityMarkers: [${data.metadata.qualityMarkers?.join(", ") || ""}]
-  clusters: [${data.metadata.clusters?.join(", ") || ""}]
-  patterns: [${data.metadata.patterns?.join(", ") || ""}]
-  relationships: [${data.metadata.relationships?.join(", ") || ""}]` : ''}` : ""}
----
-
-## Description
-${parsed.data.description || ""}
-
-## Context
-<!-- What led to this insight? What was happening at the time? -->
-
-${data.mode === 'consolidation' ? `## Impact
-${data.impact ? data.impact.map(item => `- ${item}`).join("\n") : ""}` : ''}
-
-## Action Items
-${data.actionItems ? data.actionItems.map(item => `- [ ] ${item}`).join("\n") : ""}
-
-${data.mode === 'consolidation' ? `## Related Insights
-${data.relatedInsights ? data.relatedInsights.map(item => `- [[${item}]]`).join("\n") : ""}` : ''}
-
-## Pattern Recognition
-<!-- Identify any patterns this insight relates to or reveals -->
-- 
-
-## Evidence & Examples
-<!-- Supporting observations or specific instances -->
-- 
-
-${data.mode === 'consolidation' ? `## References
-${data.links ? data.links.map(link => `- ${link}`).join("\n") : ""}` : ''}`
-
-      await fs.mkdir(path.dirname(validPath), { recursive: true })
-      await fs.writeFile(validPath, content, "utf-8")
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Successfully created insight note at ${normalizedPath}`,
-          },
-        ],
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to create insight note: ${errorMessage}`)
-    }
-  }
-
-  async createReflection(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
-    this.validateModeAccess('create_reflection')
-    const parsed = CreateReflectionArgsSchema.safeParse(args)
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_reflection: ${parsed.error}`)
-    }
-
-    try {
-      const today = new Date().toISOString().split('T')[0]
-      const notePath = `reflections/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`
-      const normalizedPath = normalizeNotePath(notePath)
-      const fullPath = path.join(this.vaultRoot, normalizedPath)
-      const validPath = await validatePath(fullPath, [this.vaultRoot])
-
-      // Create content
-      let content = `---
-title: ${parsed.data.title}
-date: ${today}
-type: reflection
-period: ${parsed.data.period}
-focus_areas: [${parsed.data.focusAreas?.join(", ") || ""}]
-tags: []
-status: ${parsed.data.status || "active"}
-progress_rating: ${parsed.data.progressRating || ""}
-${parsed.data.metadata ? `metadata:
-  effectiveness: ${parsed.data.metadata.effectiveness || ""}
-  trainingCategory: ${parsed.data.metadata.trainingCategory || ""}
-  privacyLevel: ${parsed.data.metadata.privacyLevel || ""}
-  qualityMarkers: [${parsed.data.metadata.qualityMarkers?.join(", ") || ""}]
-  clusters: [${parsed.data.metadata.clusters?.join(", ") || ""}]
-  patterns: [${parsed.data.metadata.patterns?.join(", ") || ""}]
-  relationships: [${parsed.data.metadata.relationships?.join(", ") || ""}]` : ""}
----
-
-## Key Observations
-${parsed.data.observations ? parsed.data.observations.map(item => `- ${item}`).join("\n") : ""}
-
-## Progress Analysis
-${parsed.data.progress ? parsed.data.progress.map(item => `- ${item}`).join("\n") : ""}
-
-## Challenges
-${parsed.data.challenges ? parsed.data.challenges.map(item => `- ${item}`).join("\n") : ""}
-
-## Pattern Recognition
-### Behavioral Patterns
-- 
-
-### Tool Usage Patterns
-- 
-
-### Success Patterns
-- 
-
-## Knowledge Synthesis
-### Growth Trajectory
-- 
-
-### Strategy Evolution
-- 
-
-## Action Plan
-${parsed.data.nextSteps ? parsed.data.nextSteps.map(item => `- [ ] ${item}`).join("\n") : ""}
-
-## Related Notes
-### Supporting Evidence
-${parsed.data.relatedNotes ? parsed.data.relatedNotes.map(note => `- [[${note}]]`).join("\n") : ""}
-
-### Connected Insights
-- 
-
-### Similar Patterns
-- 
-
-## References
-${parsed.data.links ? parsed.data.links.map(link => `- ${link}`).join("\n") : ""}`
-
-      await fs.mkdir(path.dirname(validPath), { recursive: true })
-      await fs.writeFile(validPath, content, "utf-8")
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Successfully created reflection note at ${normalizedPath}`,
-          },
-        ],
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to create reflection note: ${errorMessage}`)
-    }
-  }
-
-  async readNotes(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
-    this.validateModeAccess('read_notes')
-    const parsed = ReadNotesArgsSchema.safeParse(args)
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for read_notes: ${parsed.error}`)
-    }
-
-    const results = await Promise.all(
-      parsed.data.paths.map(async (filePath: string) => {
-        try {
-          // Normalize the note path and join with vault directory
-          const normalizedPath = normalizeNotePath(filePath)
-          const validPath = await validatePath(
-            path.join(this.vaultRoot, normalizedPath),
-            [this.vaultRoot]
-          )
-          const content = await fs.readFile(validPath, "utf-8")
-          return `${filePath}:\n${content}\n`
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error)
-          return `${filePath}: Error - ${errorMessage}`
-        }
-      })
-    )
-    return {
-      content: [{ type: "text", text: results.join("\n---\n") }],
-    }
-  }
-
-  async writeNote(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
-    this.validateModeAccess('write_note')
-    const parsed = WriteNoteArgsSchema.safeParse(args)
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for write_note: ${parsed.error}`)
-    }
-
-    try {
-      // Normalize the note path and join with vault directory
-      const normalizedPath = normalizeNotePath(parsed.data.path)
-      const fullPath = path.join(this.vaultRoot, normalizedPath)
-      const validPath = await validatePath(fullPath, [this.vaultRoot])
-
-      // Write the file
-      await fs.writeFile(validPath, parsed.data.content, "utf-8")
-
-      return {
-        content: [{ type: "text", text: `Successfully wrote note to ${normalizedPath}` }],
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to write note: ${errorMessage}`)
-    }
-  }
-
-  async createConsolidatedKnowledge(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
-    this.validateModeAccess('create_consolidated_knowledge')
-    const parsed = CreateConsolidatedKnowledgeArgsSchema.safeParse(args)
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_consolidated_knowledge: ${parsed.error}`)
-    }
-
-    try {
-      const today = new Date().toISOString().split('T')[0]
-      const notePath = `consolidated/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`
-      const normalizedPath = normalizeNotePath(notePath)
-      const fullPath = path.join(this.vaultRoot, normalizedPath)
-      const validPath = await validatePath(fullPath, [this.vaultRoot])
-
-      // Create content
-      let content = `---
-title: ${parsed.data.title}
-date: ${today}
-type: consolidated
-knowledge_type: ${parsed.data.knowledgeType}
-status: ${parsed.data.status || "active"}
-metadata:
-  effectiveness: ${parsed.data.metadata.effectiveness || ""}
-  trainingCategory: ${parsed.data.metadata.trainingCategory || ""}
-  privacyLevel: ${parsed.data.metadata.privacyLevel || ""}
-  qualityMarkers: [${parsed.data.metadata.qualityMarkers?.join(", ") || ""}]
-  clusters: [${parsed.data.metadata.clusters?.join(", ") || ""}]
-  patterns: [${parsed.data.metadata.patterns?.join(", ") || ""}]
-  relationships: [${parsed.data.metadata.relationships?.join(", ") || ""}]
----
-
-## Overview
-${parsed.data.overview || ""}
-
-## Evidence Base
-### Source Notes
-${parsed.data.sourceNotes ? parsed.data.sourceNotes.map(note => `- [[${note}]]`).join("\n") : ""}
-
-### Key Patterns
-${parsed.data.keyPatterns ? parsed.data.keyPatterns.map(pattern => `- ${pattern}`).join("\n") : ""}
-
-### Supporting Data
-${parsed.data.supportingData ? parsed.data.supportingData.map(data => `- ${data}`).join("\n") : ""}
-
-## Analysis
-### Pattern Details
-${parsed.data.analysis.patternDetails ? parsed.data.analysis.patternDetails.map(detail => `- ${detail}`).join("\n") : ""}
-
-### Context Factors
-${parsed.data.analysis.contextFactors ? parsed.data.analysis.contextFactors.map(factor => `- ${factor}`).join("\n") : ""}
-
-### Impact Assessment
-${parsed.data.analysis.impactAssessment ? parsed.data.analysis.impactAssessment.map(impact => `- ${impact}`).join("\n") : ""}
-
-## Synthesis
-### Key Insights
-${parsed.data.synthesis.keyInsights ? parsed.data.synthesis.keyInsights.map(insight => `- ${insight}`).join("\n") : ""}
-
-### Strategic Implications
-${parsed.data.synthesis.strategicImplications ? parsed.data.synthesis.strategicImplications.map(implication => `- ${implication}`).join("\n") : ""}
-
-### Growth Indicators
-${parsed.data.synthesis.growthIndicators ? parsed.data.synthesis.growthIndicators.map(indicator => `- ${indicator}`).join("\n") : ""}
-
-## Application
-### Implementation Steps
-${parsed.data.implementation.steps ? parsed.data.implementation.steps.map(step => `- [ ] ${step}`).join("\n") : ""}
-
-### Success Metrics
-${parsed.data.implementation.successMetrics ? parsed.data.implementation.successMetrics.map(metric => `- ${metric}`).join("\n") : ""}
-
-### Risk Factors
-${parsed.data.implementation.riskFactors ? parsed.data.implementation.riskFactors.map(risk => `- ${risk}`).join("\n") : ""}
-
-## Relationships
-### Related Patterns
-${parsed.data.relationships.relatedPatterns ? parsed.data.relationships.relatedPatterns.map(pattern => `- [[${pattern}]]`).join("\n") : ""}
-
-### Connected Strategies
-${parsed.data.relationships.connectedStrategies ? parsed.data.relationships.connectedStrategies.map(strategy => `- [[${strategy}]]`).join("\n") : ""}
-
-### Historical Context
-${parsed.data.relationships.historicalContext ? parsed.data.relationships.historicalContext.map(context => `- ${context}`).join("\n") : ""}`
-
-      await fs.mkdir(path.dirname(validPath), { recursive: true })
-      await fs.writeFile(validPath, content, "utf-8")
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Successfully created consolidated knowledge note at ${normalizedPath}`,
-          },
-        ],
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to create consolidated knowledge note: ${errorMessage}`)
-    }
-  }
-
-  async createTrainingExample(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
-    this.validateModeAccess('create_training_example')
-    const parsed = CreateTrainingExampleArgsSchema.safeParse(args)
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_training_example: ${parsed.error}`)
-    }
-
-    try {
-      const today = new Date().toISOString().split('T')[0]
-      const notePath = `training/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`
-      const normalizedPath = normalizeNotePath(notePath)
-      const fullPath = path.join(this.vaultRoot, normalizedPath)
-      const validPath = await validatePath(fullPath, [this.vaultRoot])
-
-      // Create content
-      let content = `---
-title: ${parsed.data.title}
-date: ${today}
-type: training_example
-category: ${parsed.data.category}
-status: ${parsed.data.status || "active"}
-metadata:
-  effectiveness: ${parsed.data.metadata.effectiveness || ""}
-  trainingCategory: ${parsed.data.metadata.trainingCategory || ""}
-  privacyLevel: ${parsed.data.metadata.privacyLevel || ""}
-  qualityMarkers: [${parsed.data.metadata.qualityMarkers?.join(", ") || ""}]
-  clusters: [${parsed.data.metadata.clusters?.join(", ") || ""}]
-  patterns: [${parsed.data.metadata.patterns?.join(", ") || ""}]
-  relationships: [${parsed.data.metadata.relationships?.join(", ") || ""}]
----
-
-## Context
-### Situation
-${parsed.data.context.situation || ""}
-
-### User State
-${parsed.data.context.userState || ""}
-
-### Relevant History
-${parsed.data.context.relevantHistory ? parsed.data.context.relevantHistory.map(item => `- ${item}`).join("\n") : ""}
-
-## Interaction
-### Initial Input
-${parsed.data.interaction.initialInput || ""}
-
-### Approach Used
-${parsed.data.interaction.approachUsed ? parsed.data.interaction.approachUsed.map(item => `- ${item}`).join("\n") : ""}
-
-### Tool Usage
-${parsed.data.interaction.toolUsage ? parsed.data.interaction.toolUsage.map(tool => `- ${tool}`).join("\n") : ""}
-
-### Key Moments
-${parsed.data.interaction.keyMoments ? parsed.data.interaction.keyMoments.map(moment => `- ${moment}`).join("\n") : ""}
-
-## Outcomes
-### Immediate Results
-${parsed.data.outcomes.immediateResults || ""}
-
-### User Response
-${parsed.data.outcomes.userResponse || ""}
-
-### Follow-up Effects
-${parsed.data.outcomes.followupEffects ? parsed.data.outcomes.followupEffects.map(effect => `- ${effect}`).join("\n") : ""}
-
-## Analysis
-### Success Factors
-${parsed.data.analysis.successFactors ? parsed.data.analysis.successFactors.map(factor => `- ${factor}`).join("\n") : ""}
-
-### Challenges Faced
-${parsed.data.analysis.challengesFaced ? parsed.data.analysis.challengesFaced.map(challenge => `- ${challenge}`).join("\n") : ""}
-
-### Pattern Recognition
-${parsed.data.analysis.patternRecognition ? parsed.data.analysis.patternRecognition.map(pattern => `- ${pattern}`).join("\n") : ""}
-
-## Learning Points
-### Effective Strategies
-${parsed.data.learningPoints.effectiveStrategies ? parsed.data.learningPoints.effectiveStrategies.map(strategy => `- ${strategy}`).join("\n") : ""}
-
-### Areas for Improvement
-${parsed.data.learningPoints.areasForImprovement ? parsed.data.learningPoints.areasForImprovement.map(area => `- ${area}`).join("\n") : ""}
-
-### Adaptability Notes
-${parsed.data.learningPoints.adaptabilityNotes ? parsed.data.learningPoints.adaptabilityNotes.map(note => `- ${note}`).join("\n") : ""}
-
-## Relationships
-### Similar Cases
-${parsed.data.relationships.similarCases ? parsed.data.relationships.similarCases.map(case_ => `- [[${case_}]]`).join("\n") : ""}
-
-### Related Patterns
-${parsed.data.relationships.relatedPatterns ? parsed.data.relationships.relatedPatterns.map(pattern => `- [[${pattern}]]`).join("\n") : ""}
-
-### Connected Insights
-${parsed.data.relationships.connectedInsights ? parsed.data.relationships.connectedInsights.map(insight => `- [[${insight}]]`).join("\n") : ""}`
-
-      await fs.mkdir(path.dirname(validPath), { recursive: true })
-      await fs.writeFile(validPath, content, "utf-8")
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Successfully created training example note at ${normalizedPath}`,
-          },
-        ],
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to create training example note: ${errorMessage}`)
-    }
-  }
-
-  async queryPatterns(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
-    this.validateModeAccess('query_patterns')
-    const parsed = QueryPatternsArgsSchema.safeParse(args)
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for query_patterns: ${parsed.error}`)
-    }
-
-    try {
-      // Build query parameters for each note type
-      const queries = parsed.data.noteTypes.map(type => ({
-        from: type,
-        where: {
-          ...(parsed.data.timeRange?.start && { date: { $gte: parsed.data.timeRange.start } }),
-          ...(parsed.data.timeRange?.end && { date: { $lte: parsed.data.timeRange.end } }),
-          ...(parsed.data.categories?.length && { 'metadata.trainingCategory': { $in: parsed.data.categories } }),
-          ...(parsed.data.metadata?.patterns?.length && { 'metadata.patterns': { $containsAny: parsed.data.metadata.patterns } }),
-          ...(parsed.data.metadata?.clusters?.length && { 'metadata.clusters': { $containsAny: parsed.data.metadata.clusters } })
-        },
-        fields: ['title', 'date', 'metadata', 'type'],
-        format: "table" as const
-      }))
-
-      // Execute queries and combine results
-      const results = await Promise.all(
-        queries.map(async query => {
-          const result = await executeQuery(this.vaultRoot, query)
-          return result
-        })
-      )
-
-      // Process results to identify patterns
-      const patterns = {
-        behavioral: new Map<string, number>(),
-        tool: new Map<string, number>(),
-        success: new Map<string, number>()
+      if (data.update_type === 'progress' && data.value !== undefined) {
+        const progressEntry = `### ${today}\n- Progress: ${data.value}${data.notes ? `\n- Notes: ${data.notes}` : ''}\n\n`
+        const progressSection = '## Progress Tracking'
+        updatedBody = body.replace(
+          new RegExp(`${progressSection}.*?(?=##|$)`, 's'),
+          `${progressSection}\n<!-- Record specific progress updates -->\n${progressEntry}`
+        )
+      } else if (data.update_type === 'reflection' && data.content) {
+        const reflectionEntry = `### ${today}\n${data.content}\n\n**Insights:**\n${data.insights?.map(i => `- ${i}`).join('\n') || ''}\n\n`
+        const reflectionSection = '## Reflections'
+        updatedBody = body.replace(
+          new RegExp(`${reflectionSection}.*?(?=##|$)`, 's'),
+          `${reflectionSection}\n<!-- Regular reflections on progress and learning -->\n${reflectionEntry}`
+        )
       }
 
-      // Count pattern occurrences
-      results.forEach(result => {
-        const notes = JSON.parse(result)
-        notes.forEach((note: any) => {
-          if (note.metadata?.patterns) {
-            note.metadata.patterns.forEach((pattern: string) => {
-              if (pattern.startsWith('behavior:')) {
-                const count = patterns.behavioral.get(pattern) || 0
-                patterns.behavioral.set(pattern, count + 1)
-              } else if (pattern.startsWith('tool:')) {
-                const count = patterns.tool.get(pattern) || 0
-                patterns.tool.set(pattern, count + 1)
-              } else if (pattern.startsWith('success:')) {
-                const count = patterns.success.get(pattern) || 0
-                patterns.success.set(pattern, count + 1)
-              }
-            })
-          }
-        })
-      })
-
-      // Filter patterns by minimum occurrences
-      const minOccurrences = parsed.data.minOccurrences || 1
-      const formatPatterns = (patternMap: Map<string, number>) => 
-        Array.from(patternMap.entries())
-          .filter(([_, count]) => count >= minOccurrences)
-          .sort((a, b) => b[1] - a[1])
-          .map(([pattern, count]) => `${pattern} (${count} occurrences)`)
-          .join('\n')
-
-      const output = `# Pattern Analysis
-
-## Behavioral Patterns
-${formatPatterns(patterns.behavioral) || '- No patterns found'}
-
-## Tool Usage Patterns
-${formatPatterns(patterns.tool) || '- No patterns found'}
-
-## Success Patterns
-${formatPatterns(patterns.success) || '- No patterns found'}`
+      // Write updated content
+      await fs.writeFile(validPath, `---\n${updatedFrontmatter}---\n${updatedBody}`)
 
       return {
         content: [{
           type: "text",
-          text: output
+          text: `Successfully updated goal status for ${parsed.data.title}`
         }]
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to query patterns: ${errorMessage}`)
+      throw new Error(`Failed to update goal status: ${errorMessage}`)
     }
   }
 
-  async listTemplates(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
-    this.validateModeAccess('list_templates')
+  async createReflection(args: unknown): Promise<ToolResponse> {
+    const parsed = CreateReflectionSchema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(`Invalid arguments for create_reflection: ${parsed.error}`);
+    }
+
     try {
-      const templatesDir = path.join(this.vaultRoot, "templates")
-      const files = await fs.readdir(templatesDir)
-      const templates = files.filter(file => file.endsWith('.md'))
+      const today = new Date().toISOString().split('T')[0];
+      const notePath = `reflections/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`;
+      const normalizedPath = normalizeNotePath(notePath);
+      const fullPath = path.join(this.vaultRoot, normalizedPath);
+      const validPath = await validatePath(fullPath, [this.vaultRoot]);
+
+      const content = `---
+title: ${parsed.data.title}
+period: ${parsed.data.period}
+progress_rating: ${parsed.data.progress_rating}
+focus_areas: ${JSON.stringify(parsed.data.focus_areas || [])}
+status: ${parsed.data.status || 'active'}
+tags: ${JSON.stringify(parsed.data.tags || [])}
+created: ${today}
+---
+
+# ${parsed.data.title}
+
+## Key Observations
+${(parsed.data.key_observations || []).map(obs => `- ${obs}`).join('\n')}
+
+## Progress Analysis
+${(parsed.data.progress_analysis || []).map(analysis => `- ${analysis}`).join('\n')}
+
+## Challenges
+${(parsed.data.challenges || []).map(challenge => `- ${challenge}`).join('\n')}
+
+## Insights
+${(parsed.data.insights || []).map(insight => `- ${insight}`).join('\n')}
+
+## Action Items
+${(parsed.data.action_items || []).map(item => `- [ ] ${item}`).join('\n')}
+
+## References
+${(parsed.data.references || []).map(ref => `- ${ref}`).join('\n')}
+`;
+
+      await fs.writeFile(validPath, content);
+
       return {
-        content: [{ type: "text", text: templates.join('\n') }]
-      }
+        content: [{
+          type: "text",
+          text: `Successfully created reflection note: ${notePath}`
+        }]
+      };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to list templates: ${errorMessage}`)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to create reflection: ${errorMessage}`);
     }
   }
 
-  async searchNotes(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
-    this.validateModeAccess('search_notes')
+  async createDailyLog(args: unknown): Promise<ToolResponse> {
+    const parsed = CreateDailyLogSchema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(`Invalid arguments for create_daily_log: ${parsed.error}`);
+    }
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const notePath = `daily_logs/${today}.md`;
+      const normalizedPath = normalizeNotePath(notePath);
+      const fullPath = path.join(this.vaultRoot, normalizedPath);
+      const validPath = await validatePath(fullPath, [this.vaultRoot]);
+
+      const content = `---
+date: ${today}
+mood: ${parsed.data.mood}
+energy: ${parsed.data.energy}
+session_type: ${parsed.data.session_type}
+progress_rating: ${parsed.data.progress_rating}
+focus_areas: ${JSON.stringify(parsed.data.focus_areas || [])}
+metadata:
+  effectiveness: ${parsed.data.metadata.effectiveness}
+  trainingCategory: ${parsed.data.metadata.trainingCategory}
+  privacyLevel: ${parsed.data.metadata.privacyLevel}
+---
+
+# Daily Log - ${today}
+
+## Summary
+${parsed.data.summary}
+
+## Key Topics
+${(parsed.data.keyTopics || []).map(topic => `- ${topic}`).join('\n')}
+
+## Progress Updates
+${(parsed.data.progressUpdates || []).map(update => `- ${update}`).join('\n')}
+
+## Action Items
+${(parsed.data.actionItems || []).map(item => `- [ ] ${item}`).join('\n')}
+
+## Follow-up Points
+${(parsed.data.followupPoints || []).map(point => `- ${point}`).join('\n')}
+
+## Notes
+${(parsed.data.notes || []).map(note => `- ${note}`).join('\n')}
+`;
+
+      await fs.writeFile(validPath, content);
+
+      return {
+        content: [{
+          type: "text",
+          text: `Successfully created daily log: ${notePath}`
+        }]
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to create daily log: ${errorMessage}`);
+    }
+  }
+
+  async createInsight(args: unknown): Promise<ToolResponse> {
+    const parsed = CreateInsightSchema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(`Invalid arguments for create_insight: ${parsed.error}`);
+    }
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const notePath = `insights/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`;
+      const normalizedPath = normalizeNotePath(notePath);
+      const fullPath = path.join(this.vaultRoot, normalizedPath);
+      const validPath = await validatePath(fullPath, [this.vaultRoot]);
+
+      const content = `---
+title: ${parsed.data.title}
+created: ${today}
+status: ${parsed.data.status || 'active'}
+impact_level: ${parsed.data.impact_level || 'medium'}
+metadata:
+  effectiveness: ${parsed.data.metadata.effectiveness}
+  trainingCategory: ${parsed.data.metadata.trainingCategory}
+  privacyLevel: ${parsed.data.metadata.privacyLevel}
+tags: ${JSON.stringify(parsed.data.tags || [])}
+---
+
+# ${parsed.data.title}
+
+## Description
+${parsed.data.description}
+
+## Context
+${parsed.data.context || ''}
+
+## Impact
+${(parsed.data.impact || []).map(imp => `- ${imp}`).join('\n')}
+
+## Action Items
+${(parsed.data.action_items || []).map(item => `- [ ] ${item}`).join('\n')}
+
+## Related Insights
+${(parsed.data.related_insights || []).map(insight => `- ${insight}`).join('\n')}
+
+## References
+${(parsed.data.references || []).map(ref => `- ${ref}`).join('\n')}
+`;
+
+      await fs.writeFile(validPath, content);
+
+      return {
+        content: [{
+          type: "text",
+          text: `Successfully created insight note: ${notePath}`
+        }]
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to create insight: ${errorMessage}`);
+    }
+  }
+
+  async readNotes(args: unknown): Promise<ToolResponse> {
+    const parsed = ReadNotesArgsSchema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(`Invalid arguments for read_notes: ${parsed.error}`);
+    }
+
+    try {
+      const contents = await Promise.all(
+        parsed.data.paths.map(async (notePath) => {
+          const normalizedPath = normalizeNotePath(notePath);
+          const fullPath = path.join(this.vaultRoot, normalizedPath);
+          const validPath = await validatePath(fullPath, [this.vaultRoot]);
+          const content = await readNote(validPath);
+          return JSON.stringify(content, null, 2);
+        })
+      );
+
+      return {
+        content: contents.map(content => ({
+          type: "text",
+          text: content
+        }))
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to read notes: ${errorMessage}`);
+    }
+  }
+
+  async searchNotes(args: unknown): Promise<ToolResponse> {
     const parsed = z.object({
       pattern: z.string(),
       caseSensitive: z.boolean().optional()
-    }).safeParse(args)
+    }).safeParse(args);
 
     if (!parsed.success) {
-      throw new Error(`Invalid arguments for search_notes: ${parsed.error}`)
+      throw new Error(`Invalid arguments for search_notes: ${parsed.error}`);
     }
 
     try {
-      const flags = parsed.data.caseSensitive ? '' : 'i'
-      const regex = new RegExp(parsed.data.pattern, flags)
-      const results: string[] = []
+      const files = await getMarkdownFiles(this.vaultRoot, this.vaultRoot);
+      const results: string[] = [];
 
-      const searchDir = async (dir: string) => {
-        const entries = await fs.readdir(dir, { withFileTypes: true })
-        
-        for (const entry of entries) {
-          const fullPath = path.join(dir, entry.name)
-          
-          if (entry.isDirectory()) {
-            await searchDir(fullPath)
-          } else if (entry.name.endsWith('.md')) {
-            const content = await fs.readFile(fullPath, 'utf-8')
-            if (regex.test(content)) {
-              const relativePath = path.relative(this.vaultRoot, fullPath)
-              results.push(`${relativePath}:\n${content}\n`)
-            }
-          }
+      for (const file of files) {
+        const content = await fs.readFile(file, 'utf-8');
+        const regex = new RegExp(parsed.data.pattern, parsed.data.caseSensitive ? 'g' : 'gi');
+        const matches = content.match(regex);
+
+        if (matches) {
+          const relativePath = path.relative(this.vaultRoot, file);
+          results.push(`File: ${relativePath}`);
+          results.push('Matches:');
+          matches.forEach(match => {
+            const context = content.substring(
+              Math.max(0, content.indexOf(match) - 50),
+              Math.min(content.length, content.indexOf(match) + match.length + 50)
+            );
+            results.push(`...${context}...`);
+          });
+          results.push('---');
         }
       }
-
-      await searchDir(this.vaultRoot)
-
-      return {
-        content: [{ type: "text", text: results.join('\n---\n') }]
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to search notes: ${errorMessage}`)
-    }
-  }
-
-  async createFromTemplate(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
-    this.validateModeAccess('create_from_template')
-    const parsed = z.object({
-      template: z.string(),
-      path: z.string(),
-      variables: z.record(z.string()).optional()
-    }).safeParse(args)
-    
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_from_template: ${parsed.error}`)
-    }
-
-    try {
-      // Read the template content
-      const templateContent = await readTemplate(this.vaultRoot, parsed.data.template)
-      
-      // Substitute variables if provided
-      const processedContent = parsed.data.variables 
-        ? substituteVariables(templateContent, parsed.data.variables)
-        : templateContent
-
-      // Normalize the note path and join with vault directory
-      const normalizedPath = normalizeNotePath(parsed.data.path)
-      const fullPath = path.join(this.vaultRoot, normalizedPath)
-      const validPath = await validatePath(fullPath, [this.vaultRoot])
-
-      // Create directory if it doesn't exist
-      await fs.mkdir(path.dirname(validPath), { recursive: true })
-      
-      // Write the processed content
-      await fs.writeFile(validPath, processedContent, "utf-8")
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Successfully created note from template at ${normalizedPath}`
-          }
-        ]
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to create note from template: ${errorMessage}`)
-    }
-  }
-
-  async queryNotes(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
-    this.validateModeAccess('query_notes')
-    const parsed = QueryNotesArgsSchema.safeParse(args)
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for query_notes: ${parsed.error}`)
-    }
-
-    try {
-      // Parse Dataview query if provided
-      const queryParams = parsed.data.query ? parseDataviewQuery(parsed.data.query) : {}
-      
-      // Merge explicit parameters with query parameters
-      const finalParams = {
-        from: parsed.data.from || queryParams.from,
-        where: parsed.data.where || queryParams.where,
-        sort: parsed.data.sort || queryParams.sort,
-        limit: parsed.data.limit || queryParams.limit,
-        fields: parsed.data.fields || queryParams.fields,
-        format: parsed.data.format
-      }
-
-      const result = await executeQuery(this.vaultRoot, finalParams)
 
       return {
         content: [{
           type: "text",
-          text: result
+          text: results.join('\n')
+        }]
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to search notes: ${errorMessage}`);
+    }
+  }
+
+  async queryNotes(args: unknown): Promise<ToolResponse> {
+    const parsed = QueryNotesArgsSchema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(`Invalid arguments for query_notes: ${parsed.error}`);
+    }
+
+    try {
+      const results = await executeQuery(this.vaultRoot, {
+        from: parsed.data.query,
+        format: "list"
+      });
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(results, null, 2)
+        }]
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to execute query: ${errorMessage}`);
+    }
+  }
+
+  async discoverVault(args: unknown): Promise<ToolResponse> {
+    try {
+      const files = await getMarkdownFiles(this.vaultRoot, this.vaultRoot);
+      const structure: Record<string, Set<string>> = {};
+
+      for (const file of files) {
+        const content = await fs.readFile(file, 'utf-8');
+        const relativePath = path.relative(this.vaultRoot, file);
+        const folder = path.dirname(relativePath);
+
+        if (!structure[folder]) {
+          structure[folder] = new Set();
+        }
+
+        // Extract frontmatter fields
+        const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/m) || [];
+        if (frontmatterMatch) {
+          const lines = frontmatterMatch[1].split('\n');
+          lines.forEach(line => {
+            const match = line.match(/^(\w+):/);
+            if (match) {
+              structure[folder].add(match[1]);
+            }
+          });
+        }
+      }
+
+      const result = Object.entries(structure).map(([folder, fields]) => ({
+        folder,
+        fields: Array.from(fields)
+      }));
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to discover vault structure: ${errorMessage}`);
+    }
+  }
+
+  async createGoal(args: unknown): Promise<ToolResponse> {
+    const parsed = CreateGoalSchema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(`Invalid arguments for create_goal: ${parsed.error}`);
+    }
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const notePath = `goals/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`;
+      const normalizedPath = normalizeNotePath(notePath);
+      const fullPath = path.join(this.vaultRoot, normalizedPath);
+      const validPath = await validatePath(fullPath, [this.vaultRoot]);
+
+      const content = `---
+title: ${parsed.data.title}
+created: ${today}
+type: ${parsed.data.type}
+status: active
+targetDate: ${parsed.data.targetDate || 'TBD'}
+priority: ${parsed.data.metadata?.priority || 'medium'}
+tags: ${JSON.stringify(parsed.data.metadata?.tags || [])}
+---
+
+# ${parsed.data.title}
+
+## Description
+${parsed.data.description}
+
+## Identity Statement
+${parsed.data.identity || ''}
+
+## Metrics
+${parsed.data.metrics.map(metric => `- [ ] ${metric}`).join('\n')}
+
+## Related Habits
+${(parsed.data.relatedHabits || []).map(habit => `- ${habit}`).join('\n')}
+
+## Progress Tracking
+<!-- Record specific progress updates -->
+
+## Reflections
+<!-- Regular reflections on progress and learning -->
+`;
+
+      await fs.writeFile(validPath, content);
+
+      return {
+        content: [{
+          type: "text",
+          text: `Successfully created goal: ${notePath}`
+        }]
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to create goal: ${errorMessage}`);
+    }
+  }
+
+  async createHabit(args: unknown): Promise<ToolResponse> {
+    const parsed = CreateHabitSchema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(`Invalid arguments for create_habit: ${parsed.error}`);
+    }
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const notePath = `habits/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`;
+      const normalizedPath = normalizeNotePath(notePath);
+      const fullPath = path.join(this.vaultRoot, normalizedPath);
+      const validPath = await validatePath(fullPath, [this.vaultRoot]);
+
+      const content = `---
+title: ${parsed.data.title}
+created: ${today}
+type: ${parsed.data.type}
+frequency: ${parsed.data.implementation.frequency}
+timeOfDay: ${parsed.data.implementation.timeOfDay || 'flexible'}
+duration: ${parsed.data.implementation.duration || 'N/A'}
+difficulty: ${parsed.data.metadata?.difficulty || 3}
+tags: ${JSON.stringify(parsed.data.metadata?.tags || [])}
+---
+
+# ${parsed.data.title}
+
+## Description
+${parsed.data.description}
+
+## Implementation Strategy
+
+### Cue
+${parsed.data.cue}
+
+### Craving
+${parsed.data.craving}
+
+### Response
+${parsed.data.response}
+
+### Reward
+${parsed.data.reward}
+
+### Location
+${parsed.data.implementation.location || 'Flexible'}
+
+## Habit Stacking
+${parsed.data.stacking?.before ? '### Before\n' + parsed.data.stacking.before.map((h: string) => `- ${h}`).join('\n') : ''}
+${parsed.data.stacking?.after ? '### After\n' + parsed.data.stacking.after.map((h: string) => `- ${h}`).join('\n') : ''}
+
+### Completion History
+<!-- Track daily completions -->
+
+### Obstacles Encountered
+<!-- Document challenges and solutions -->
+
+### Adaptations Made
+<!-- Record changes to implementation -->
+`;
+
+      await fs.writeFile(validPath, content);
+
+      return {
+        content: [{
+          type: "text",
+          text: `Successfully created habit: ${notePath}`
+        }]
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to create habit: ${errorMessage}`);
+    }
+  }
+
+  async updateHabitTracking(args: unknown): Promise<ToolResponse> {
+    const parsed = z.object({
+      title: z.string(),
+      update_type: z.enum(['completion', 'obstacle', 'adaptation']),
+      completed: z.boolean().optional(),
+      notes: z.string().optional(),
+      description: z.string().optional(),
+      solution: z.string().optional(),
+      change: z.string().optional(),
+      reason: z.string().optional(),
+      outcome: z.string().optional()
+    }).safeParse(args)
+
+    if (!parsed.success) {
+      throw new Error(`Invalid arguments for update_habit_tracking: ${parsed.error}`)
+    }
+
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const notePath = `habits/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`
+      const normalizedPath = normalizeNotePath(notePath)
+      const fullPath = path.join(this.vaultRoot, normalizedPath)
+      const validPath = await validatePath(fullPath, [this.vaultRoot])
+
+      // Read existing note
+      const content = await fs.readFile(validPath, 'utf-8')
+      const [frontmatter, ...bodyParts] = content.split('---\n').filter(Boolean)
+      const body = bodyParts.join('---\n')
+
+      // Update appropriate section based on update type
+      let updatedBody = body
+      const data = parsed.data
+
+      if (data.update_type === 'completion' && data.completed !== undefined) {
+        const completionEntry = `- [${data.completed ? 'x' : ' '}] ${today}${data.notes ? ` - ${data.notes}` : ''}\n`
+        const completionSection = '### Completion History'
+        updatedBody = body.replace(
+          new RegExp(`${completionSection}.*?(?=###|$)`, 's'),
+          `${completionSection}\n${completionEntry}`
+        )
+      } else if (data.update_type === 'obstacle' && data.description) {
+        const obstacleEntry = `#### ${today}\n**Challenge:** ${data.description}\n**Solution:** ${data.solution || 'Not yet resolved'}\n\n`
+        const obstacleSection = '### Obstacles Encountered'
+        updatedBody = body.replace(
+          new RegExp(`${obstacleSection}.*?(?=###|$)`, 's'),
+          `${obstacleSection}\n${obstacleEntry}`
+        )
+      } else if (data.update_type === 'adaptation' && data.change && data.reason) {
+        const adaptationEntry = `#### ${today}\n**Change:** ${data.change}\n**Reason:** ${data.reason}\n**Outcome:** ${data.outcome || 'Pending'}\n\n`
+        const adaptationSection = '### Adaptations Made'
+        updatedBody = body.replace(
+          new RegExp(`${adaptationSection}.*?(?=###|$)`, 's'),
+          `${adaptationSection}\n${adaptationEntry}`
+        )
+      }
+
+      // Write updated content
+      await fs.writeFile(validPath, `---\n${frontmatter}---\n${updatedBody}`)
+
+      return {
+        content: [{
+          type: "text",
+          text: `Successfully updated habit tracking for ${parsed.data.title}`
         }]
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to query notes: ${errorMessage}`)
+      throw new Error(`Failed to update habit tracking: ${errorMessage}`)
     }
   }
 }
