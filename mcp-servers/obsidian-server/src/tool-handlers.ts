@@ -2,6 +2,123 @@ import { z } from "zod"
 import fs from "fs/promises"
 import path from "path"
 import { TagManager } from "./tag-manager.js"
+
+// Metadata and version management utilities
+type Metadata = z.infer<typeof BaseMetadataSchema>;
+
+type TagRelationship = z.infer<typeof TagHierarchySchema>['relationships'][number];
+
+type VersionChange = z.infer<typeof VersionSchema>['changes'][number];
+type Version = z.infer<typeof VersionSchema>;
+
+function getTimestamp(): string {
+  return new Date().toISOString();
+}
+
+// Note type interfaces
+interface JournalNote {
+  title: string;
+  date: string;
+  type?: 'reflection' | 'health' | 'activity' | 'misc';
+  mood?: number;
+  energy?: number;
+  metrics?: Array<{name: string; value: string | number; unit?: string}>;
+  links?: z.infer<typeof LinkSchema>[];
+  content: string;
+}
+
+interface GoalNote {
+  title: string;
+  description: string;
+  type: 'outcome' | 'process' | 'identity';
+  status: 'active' | 'completed' | 'abandoned';
+  targetDate?: string;
+  metrics: Array<{name: string; value: string | number; unit?: string}>;
+  progress?: Array<{date: string; value: string | number; notes?: string}>;
+  links?: z.infer<typeof LinkSchema>[];
+}
+
+interface HabitNote {
+  title: string;
+  description: string;
+  type: 'build' | 'break';
+  cue: string;
+  craving: string;
+  response: string;
+  reward: string;
+  implementation: {
+    frequency: 'daily' | 'weekly' | 'custom';
+    timeOfDay?: string;
+    duration?: string;
+    location?: string;
+  };
+}
+
+interface HealthMetricNote {
+  title: string;
+  date: string;
+  type: 'weight' | 'blood_pressure' | 'sleep' | 'pain' | 'medication' | 'custom';
+  values: Array<{name: string; value: string | number; unit?: string}>;
+  note?: string;
+  links?: z.infer<typeof LinkSchema>[];
+}
+
+// Generic type for note data with required fields
+interface NoteData<T = JournalNote | GoalNote | HabitNote | HealthMetricNote> {
+  metadata: Metadata;
+  versions?: Version[];
+}
+
+
+  function addMetadata<T extends NoteData<V>, V = void>(
+    data: T,
+    previousVersion?: T
+  ): T & { versions: Version[] } {
+    const timestamp = getTimestamp();
+    const newVersion = previousVersion ? previousVersion.metadata.version + 1 : 1;
+    
+    // Track changes if this is an update
+    const versions: Version[] = [...(data.versions || [])];
+    if (previousVersion) {
+      const changes = Object.entries(data)
+        .filter(([key, value]) => {
+          // Type assertion to tell TypeScript this indexing is safe
+          return key !== 'metadata' && key !== 'versions' &&
+            JSON.stringify((previousVersion as Record<string, unknown>)[key]) !== 
+            JSON.stringify(value);
+        })
+        .map(([field, current]): VersionChange => ({
+          field,
+          previous: (previousVersion as Record<string, unknown>)[field],
+          current
+        }));
+        
+      if (changes.length > 0) {
+        const version: Version = {
+          version: newVersion,
+          timestamp,
+          author: 'system',
+          changes,
+          message: `Updated ${changes.map(c => c.field).join(', ')}`
+        };
+        versions.push(version);
+      }
+    }
+  
+    return {
+      ...data,
+      metadata: {
+        ...data.metadata,
+        created: data.metadata?.created || timestamp,
+        modified: timestamp,
+        version: newVersion,
+        privacyLevel: data.metadata.privacyLevel,
+        tags: data.metadata.tags
+      },
+      versions
+    };
+  }
+
 import {
   validatePath,
   normalizeNotePath,
@@ -47,16 +164,52 @@ export class ToolHandlers {
     });
   }
 
-  getToolDefinitions() {
+  private async createNote(
+    folder: string,
+    title: string,
+    content: string,
+    options: {
+      useDate?: boolean; // Use date instead of full timestamp (for journals)
+      additionalPath?: string; // Additional path components
+    } = {}
+  ): Promise<string> {
+    const today = new Date().toISOString().split('T')[0];
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    
+    // Construct the filename with timestamp/date prefix
+    const prefix = options.useDate ? today : timestamp;
+    const sanitizedTitle = title.toLowerCase().replace(/\s+/g, '-');
+    const filename = `${prefix}-${sanitizedTitle}.md`;
+    
+    // Construct the full path
+    const pathComponents = [folder];
+    if (options.additionalPath) {
+      pathComponents.push(options.additionalPath);
+    }
+    pathComponents.push(filename);
+    
+    const notePath = pathComponents.join('/');
+    const normalizedPath = normalizeNotePath(notePath);
+    const fullPath = path.join(this.vaultRoot, normalizedPath);
+    const validPath = await validatePath(fullPath, [this.vaultRoot]);
+
+    // Write the file
+    await fs.writeFile(validPath, content);
+
+    return notePath;
+  }
+
+  getToolDefinitions(): Record<string, {
+    name: string;
+    description: string;
+    inputSchema: z.ZodType<any>;
+  }> {
     return {
-      search_by_tags: {
-        name: "search_by_tags",
-        description: "Search notes by tags with advanced options. Required: tags[]:str[]\nOptional: operator:('AND'|'OR')='AND', includeChildren:bool=false, caseSensitive:bool=false",
+      get_help: {
+        name: "get_help",
+        description: "Get detailed documentation for any tool including field descriptions, examples, and usage patterns. Required: tool_name:string (name of tool to get help for)",
         inputSchema: z.object({
-          tags: z.array(z.string()),
-          operator: z.enum(['AND', 'OR']).default('AND'),
-          includeChildren: z.boolean().default(false),
-          caseSensitive: z.boolean().default(false)
+          tool_name: z.string()
         })
       },
       set_tag_hierarchy: {
@@ -66,6 +219,16 @@ export class ToolHandlers {
           tag: z.string(),
           parent: z.string().optional(),
           children: z.array(z.string()).optional()
+        })
+      },
+      set_tag_relationship: {
+        name: "set_tag_relationship",
+        description: "Set relationship between tags. Required: tag:str, relatedTag:str, type:('similar'|'opposite'|'broader'|'narrower'|'custom')\nOptional: strength:number(1-5)",
+        inputSchema: z.object({
+          tag: z.string(),
+          relatedTag: z.string(),
+          type: z.enum(['similar', 'opposite', 'broader', 'narrower', 'custom']),
+          strength: z.number().min(1).max(5).optional()
         })
       },
       get_tag_stats: {
@@ -155,112 +318,164 @@ export class ToolHandlers {
       },
       create_health_metric: {
         name: "create_health_metric",
-        description: "Creates health metric entry. Required: title:str, date:str, type:('weight'|'blood_pressure'|'sleep'|'pain'|'medication'|'custom'), values:[{name:str, value:num|str, unit?:str}]\nOptional: note:str, links:[{source:str, target:str, type:str}], metadata:{...}, versions:[{...}]",
+        description: "Creates health metric entry.\nRequired:\n- title:str\n- date:str\n- type:('weight'|'blood_pressure'|'sleep'|'pain'|'medication'|'custom')\n- values:[{name:str, value:num|str, unit?:str}]\n- metadata:{created:str, modified:str, privacyLevel:('public'|'private'|'sensitive')}\nOptional:\n- note:str\n- links:[{source:str, target:str, type:str}]\n- versions:[{...}]",
         inputSchema: CreateHealthMetricSchema
       }
     }
   }
 
-  async createHealthMetric(args: unknown): Promise<ToolResponse> {
-    const parsed = CreateHealthMetricSchema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_health_metric: ${parsed.error}`);
-    }
+  private getToolHelp(toolName: string): string {
+    const helpDocs: Record<string, string> = {
+      create_goal: `# Create Goal Tool Documentation
 
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const notePath = `metrics/${timestamp}-${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`;
-      const normalizedPath = normalizeNotePath(notePath);
-      const fullPath = path.join(this.vaultRoot, normalizedPath);
-      const validPath = await validatePath(fullPath, [this.vaultRoot]);
+Required Fields:
+---------------
+- title: string
+  Goal title/name
 
-      const content = `---
-title: ${parsed.data.title}
-date: ${parsed.data.date}
-type: ${parsed.data.type}
-values: ${JSON.stringify(parsed.data.values)}
-note: ${parsed.data.note || ''}
-links: ${JSON.stringify(parsed.data.links || [])}
-metadata:
-  created: ${today}
-  modified: ${today}
-  version: 1
-  privacyLevel: ${parsed.data.metadata?.privacyLevel || 'private'}
-  tags: ${JSON.stringify(parsed.data.metadata?.tags || [])}
-versions: []
----
+- description: string
+  Detailed description of the goal
 
-# ${parsed.data.title}
+- type: "outcome" | "process" | "identity"
+  The type of goal being created
 
-## Values
-${parsed.data.values.map(v => `- ${v.name}: ${v.value}${v.unit ? ` ${v.unit}` : ''}`).join('\n')}
+- metrics: Array of:
+  * name: string - Name of the metric
+  * target: number|string - Target value
+  * unit?: string - Optional unit of measurement
+  * current?: number|string - Optional current value
 
-## Note
-${parsed.data.note || 'No additional notes.'}
+- metadata:
+  * created: string - ISO timestamp (YYYY-MM-DDTHH:mm:ssZ)
+  * modified: string - ISO timestamp (YYYY-MM-DDTHH:mm:ssZ)
+  * priority: "low" | "medium" | "high"
+  * tags: string[] - Array of relevant tags
+  * privacyLevel: "public" | "private" | "sensitive"
 
-## Links
-${(parsed.data.links || []).map(link => `- [${link.type}] ${link.target} (${link.label || 'No label'})`).join('\n')}
+Optional Fields:
+---------------
+- targetDate?: string
+  Target completion date
 
-## History
-<!-- Track value changes over time -->
-### ${today}
-${parsed.data.values.map(v => `- Initial ${v.name}: ${v.value}${v.unit ? ` ${v.unit}` : ''}`).join('\n')}
-`;
+- progress?: Array of:
+  * date: string
+  * value: number|string
+  * notes?: string
 
-      await fs.writeFile(validPath, content);
+- links?: Array of:
+  * source: string
+  * target: string
+  * type: string
+  * label?: string
 
-      return {
-        content: [{
-          type: "text",
-          text: `Successfully created metric note: ${notePath}`
-        }]
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to create metric note: ${errorMessage}`);
-    }
+Example Usage:
+-------------
+{
+  "title": "Learn TypeScript",
+  "description": "Master TypeScript for better code quality",
+  "type": "outcome",
+  "metrics": [{
+    "name": "projects_completed",
+    "target": 5,
+    "unit": "projects"
+  }],
+  "metadata": {
+    "created": "2024-12-29T12:00:00Z",
+    "modified": "2024-12-29T12:00:00Z",
+    "priority": "high",
+    "tags": ["programming", "skills"],
+    "privacyLevel": "public"
+  }
+}`,
+      // Add help docs for other tools here
+    };
+
+    return helpDocs[toolName] || `No detailed help available for tool: ${toolName}`;
   }
 
-  async searchByTags(args: unknown): Promise<ToolResponse> {
+  async get_help(args: unknown): Promise<ToolResponse> {
     const parsed = z.object({
-      tags: z.array(z.string()),
-      operator: z.enum(['AND', 'OR']).default('AND'),
-      includeChildren: z.boolean().default(false),
-      caseSensitive: z.boolean().default(false)
+      tool_name: z.string()
     }).safeParse(args);
 
     if (!parsed.success) {
-      throw new Error(`Invalid arguments for search_by_tags: ${parsed.error}`);
+      // Provide more detailed error information
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for get_help:\n${errors}\n\nTool requires a single string argument 'tool_name' specifying which tool to get help for.`);
+    }
+
+    return {
+      content: [{
+        type: "text",
+        text: this.getToolHelp(parsed.data.tool_name)
+      }]
+    };
+  }
+
+  async set_tag_relationship(args: unknown): Promise<ToolResponse> {
+    const parsed = z.object({
+      tag: z.string(),
+      relatedTag: z.string(),
+      type: z.enum(['similar', 'opposite', 'broader', 'narrower', 'custom']),
+      strength: z.number().min(1).max(5).optional(),
+      notes: z.string().optional()
+    }).safeParse(args);
+
+    if (!parsed.success) {
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for set_tag_relationship:\n${errors}\n\nUse get_help tool with tool_name="set_tag_relationship" for detailed usage guide.`);
     }
 
     try {
-      const results = this.tagManager.searchByTags(
-        parsed.data.tags,
-        parsed.data.operator,
-        parsed.data.includeChildren,
-        parsed.data.caseSensitive
-      );
+      const timestamp = getTimestamp();
+      const relationship = {
+        relatedTag: parsed.data.relatedTag,
+        type: parsed.data.type,
+        metadata: {
+          created: timestamp,
+          strength: parsed.data.strength,
+          notes: parsed.data.notes,
+          valid: true
+        }
+      };
+
+      // Add bidirectional relationship
+      this.tagManager.addTagRelationship(parsed.data.tag, parsed.data.relatedTag, parsed.data.type);
+      
+      // Add inverse relationship
+      const inverseType = this.getInverseRelationType(parsed.data.type);
+      this.tagManager.addTagRelationship(parsed.data.relatedTag, parsed.data.tag, inverseType);
+
+      const relationships = this.tagManager.getTagRelationships(parsed.data.tag);
 
       return {
         content: [{
           type: "text",
           text: JSON.stringify({
-            matchingFiles: results,
-            count: results.length,
-            searchCriteria: {
-              tags: parsed.data.tags,
-              operator: parsed.data.operator,
-              includeChildren: parsed.data.includeChildren,
-              caseSensitive: parsed.data.caseSensitive
-            }
+            tag: parsed.data.tag,
+            relationships: relationships
           }, null, 2)
         }]
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to search by tags: ${errorMessage}`);
+      throw new Error(`Failed to set tag relationship: ${errorMessage}`);
     }
+  }
+
+  private getInverseRelationType(type: 'similar' | 'opposite' | 'broader' | 'narrower' | 'custom'): 'similar' | 'opposite' | 'broader' | 'narrower' | 'custom' {
+    const inverseMap = {
+      'broader': 'narrower',
+      'narrower': 'broader',
+      'similar': 'similar',
+      'opposite': 'opposite',
+      'custom': 'custom'
+    } as const;
+    return inverseMap[type];
   }
 
   async setTagHierarchy(args: unknown): Promise<ToolResponse> {
@@ -271,7 +486,10 @@ ${parsed.data.values.map(v => `- Initial ${v.name}: ${v.value}${v.unit ? ` ${v.u
     }).safeParse(args);
 
     if (!parsed.success) {
-      throw new Error(`Invalid arguments for set_tag_hierarchy: ${parsed.error}`);
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for set_tag_hierarchy:\n${errors}\n\nUse get_help tool with tool_name="set_tag_hierarchy" for detailed usage guide.`);
     }
 
     try {
@@ -282,13 +500,15 @@ ${parsed.data.values.map(v => `- Initial ${v.name}: ${v.value}${v.unit ? ` ${v.u
       );
 
       const hierarchy = this.tagManager.getTagHierarchy(parsed.data.tag);
+      const relationships = this.tagManager.getTagRelationships(parsed.data.tag);
 
       return {
         content: [{
           type: "text",
           text: JSON.stringify({
             tag: parsed.data.tag,
-            hierarchy: hierarchy
+            hierarchy: hierarchy,
+            relationships: relationships
           }, null, 2)
         }]
       };
@@ -299,6 +519,15 @@ ${parsed.data.values.map(v => `- Initial ${v.name}: ${v.value}${v.unit ? ` ${v.u
   }
 
   async getTagStats(args: unknown): Promise<ToolResponse> {
+    const parsed = z.object({}).safeParse(args);
+    
+    if (!parsed.success) {
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for get_tag_stats:\n${errors}\n\nUse get_help tool with tool_name="get_tag_stats" for detailed usage guide.\n\nExample usage:\n{\n  // No parameters required\n}`);
+    }
+
     try {
       const allTags = this.tagManager.getAllTags();
       
@@ -345,12 +574,26 @@ ${parsed.data.values.map(v => `- Initial ${v.name}: ${v.value}${v.unit ? ` ${v.u
     }).safeParse(args)
 
     if (!parsed.success) {
-      throw new Error(`Invalid arguments for update_goal_status: ${parsed.error}`)
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for update_goal_status:\n${errors}\n\nUse get_help tool with tool_name="update_goal_status" for detailed usage guide.`);
     }
 
     try {
       const today = new Date().toISOString().split('T')[0]
-      const notePath = `goals/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`
+      // Find the goal file by searching for files that end with the title
+      const files = await getMarkdownFiles(path.join(this.vaultRoot, 'goals'), this.vaultRoot);
+      const goalFile = files.find(file => {
+        const filename = path.basename(file);
+        return filename.endsWith(`-${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`);
+      });
+      
+      if (!goalFile) {
+        throw new Error(`Goal not found: ${parsed.data.title}`);
+      }
+      
+      const notePath = path.relative(this.vaultRoot, goalFile);
       const normalizedPath = normalizeNotePath(notePath)
       const fullPath = path.join(this.vaultRoot, normalizedPath)
       const validPath = await validatePath(fullPath, [this.vaultRoot])
@@ -404,35 +647,34 @@ ${parsed.data.values.map(v => `- Initial ${v.name}: ${v.value}${v.unit ? ` ${v.u
     }
   }
 
-
   async createJournal(args: unknown): Promise<ToolResponse> {
     const parsed = CreateJournalSchema.safeParse(args);
     if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_journal: ${parsed.error}`);
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for create_journal:\n${errors}\n\nUse get_help tool with tool_name="create_journal" for detailed usage guide.`);
     }
 
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const notePath = `journal/${parsed.data.date}-${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`;
-      const normalizedPath = normalizeNotePath(notePath);
-      const fullPath = path.join(this.vaultRoot, normalizedPath);
-      const validPath = await validatePath(fullPath, [this.vaultRoot]);
-
+      // Add timestamps using utility function
+      const journalData = addMetadata(parsed.data);
+      
       const content = `---
-title: ${parsed.data.title}
-date: ${parsed.data.date}
-type: ${parsed.data.type || 'misc'}
-mood: ${parsed.data.mood || 'N/A'}
-energy: ${parsed.data.energy || 'N/A'}
-metrics: ${JSON.stringify(parsed.data.metrics || [])}
-links: ${JSON.stringify(parsed.data.links || [])}
+title: ${journalData.title}
+date: ${journalData.date}
+type: ${journalData.type || 'misc'}
+mood: ${journalData.mood || 'N/A'}
+energy: ${journalData.energy || 'N/A'}
+metrics: ${JSON.stringify(journalData.metrics || [])}
+links: ${JSON.stringify(journalData.links || [])}
 metadata:
-  created: ${today}
-  modified: ${today}
-  version: 1
+  created: ${journalData.metadata.created}
+  modified: ${journalData.metadata.modified}
+  version: ${journalData.metadata.version}
   privacyLevel: ${parsed.data.metadata.privacyLevel}
   tags: ${JSON.stringify(parsed.data.metadata.tags || [])}
-versions: []
+versions: ${JSON.stringify(journalData.versions || [], null, 2)}
 ---
 
 # ${parsed.data.title}
@@ -447,7 +689,7 @@ ${parsed.data.links?.length ? `## Links
 ${parsed.data.links.map(link => `- [${link.type}] ${link.target} (${link.label || 'No label'})`).join('\n')}` : ''}
 `;
 
-      await fs.writeFile(validPath, content);
+      const notePath = await this.createNote('journal', parsed.data.title, content, { useDate: true });
 
       return {
         content: [{
@@ -461,11 +703,13 @@ ${parsed.data.links.map(link => `- [${link.type}] ${link.target} (${link.label |
     }
   }
 
-
   async readNotes(args: unknown): Promise<ToolResponse> {
     const parsed = ReadNotesArgsSchema.safeParse(args);
     if (!parsed.success) {
-      throw new Error(`Invalid arguments for read_notes: ${parsed.error}`);
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for read_notes:\n${errors}\n\nUse get_help tool with tool_name="read_notes" for detailed usage guide.`);
     }
 
     try {
@@ -501,7 +745,10 @@ ${parsed.data.links.map(link => `- [${link.type}] ${link.target} (${link.label |
     }).safeParse(args);
 
     if (!parsed.success) {
-      throw new Error(`Invalid arguments for search_notes: ${parsed.error}`);
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for search_notes:\n${errors}\n\nUse get_help tool with tool_name="search_notes" for detailed usage guide.`);
     }
 
     try {
@@ -585,7 +832,10 @@ ${parsed.data.links.map(link => `- [${link.type}] ${link.target} (${link.label |
   async queryNotes(args: unknown): Promise<ToolResponse> {
     const parsed = QueryNotesArgsSchema.safeParse(args);
     if (!parsed.success) {
-      throw new Error(`Invalid arguments for query_notes: ${parsed.error}`);
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for query_notes:\n${errors}\n\nUse get_help tool with tool_name="query_notes" for detailed usage guide.`);
     }
 
     try {
@@ -623,6 +873,15 @@ ${parsed.data.links.map(link => `- [${link.type}] ${link.target} (${link.label |
   }
 
   async discoverVault(args: unknown): Promise<ToolResponse> {
+    const parsed = z.object({}).safeParse(args);
+    
+    if (!parsed.success) {
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for discover_vault:\n${errors}\n\nUse get_help tool with tool_name="discover_vault" for detailed usage guide.\n\nExample usage:\n{\n  // No parameters required\n}`);
+    }
+
     try {
       const files = await getMarkdownFiles(this.vaultRoot, this.vaultRoot);
       const structure: Record<string, Set<string>> = {};
@@ -669,24 +928,27 @@ ${parsed.data.links.map(link => `- [${link.type}] ${link.target} (${link.label |
   async createGoal(args: unknown): Promise<ToolResponse> {
     const parsed = CreateGoalSchema.safeParse(args);
     if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_goal: ${parsed.error}`);
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for create_goal:\n${errors}\n\nUse get_help tool with tool_name="create_goal" for detailed usage guide.`);
     }
 
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const notePath = `goals/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`;
-      const normalizedPath = normalizeNotePath(notePath);
-      const fullPath = path.join(this.vaultRoot, normalizedPath);
-      const validPath = await validatePath(fullPath, [this.vaultRoot]);
-
+      // Add timestamps using utility function
+      const goalData = addMetadata(parsed.data);
+      
       const content = `---
-title: ${parsed.data.title}
-created: ${today}
-type: ${parsed.data.type}
+title: ${goalData.title}
+created: ${goalData.metadata.created}
+modified: ${goalData.metadata.modified}
+type: ${goalData.type}
 status: active
 targetDate: ${parsed.data.targetDate || 'TBD'}
-priority: ${parsed.data.metadata?.priority || 'medium'}
-tags: ${JSON.stringify(parsed.data.metadata?.tags || [])}
+priority: ${parsed.data.metadata.priority}
+tags: ${JSON.stringify(parsed.data.metadata.tags)}
+privacyLevel: ${parsed.data.metadata.privacyLevel}
+versions: ${JSON.stringify(goalData.versions || [], null, 2)}
 ---
 
 # ${parsed.data.title}
@@ -702,12 +964,27 @@ ${(parsed.data.progress || []).map(p => `### ${p.date}\n- Value: ${p.value}\n${p
 
 ## Progress Tracking
 <!-- Record specific progress updates -->
+${parsed.data.metrics.map(metric => 
+  `### ${metric.name}\n- Target: ${metric.target}${metric.unit ? ` ${metric.unit}` : ''}${metric.current ? `\n- Current: ${metric.current}` : ''}`
+).join('\n\n')}
 
 ## Reflections
 <!-- Regular reflections on progress and learning -->
+
+## Links
+${(parsed.data.links || []).map(link => 
+  `- [${link.type}] ${link.target}${link.label ? ` (${link.label})` : ''}`
+).join('\n')}
+
+## Version History
+${goalData.versions?.map(v => 
+  `### Version ${v.version} - ${v.timestamp}\n**Author:** ${v.author}\n**Changes:**\n${v.changes.map(c => 
+    `- ${c.field}: ${c.previous} → ${c.current}`
+  ).join('\n')}${v.message ? `\n**Message:** ${v.message}` : ''}`
+).join('\n\n') || '<!-- No version history yet -->'}
 `;
 
-      await fs.writeFile(validPath, content);
+      const notePath = await this.createNote('goals', parsed.data.title, content);
 
       return {
         content: [{
@@ -724,25 +1001,27 @@ ${(parsed.data.progress || []).map(p => `### ${p.date}\n- Value: ${p.value}\n${p
   async createHabit(args: unknown): Promise<ToolResponse> {
     const parsed = CreateHabitSchema.safeParse(args);
     if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_habit: ${parsed.error}`);
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for create_habit:\n${errors}\n\nUse get_help tool with tool_name="create_habit" for detailed usage guide.`);
     }
 
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const notePath = `habits/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`;
-      const normalizedPath = normalizeNotePath(notePath);
-      const fullPath = path.join(this.vaultRoot, normalizedPath);
-      const validPath = await validatePath(fullPath, [this.vaultRoot]);
-
+      // Add timestamps using utility function
+      const habitData = addMetadata(parsed.data);
+      
       const content = `---
-title: ${parsed.data.title}
-created: ${today}
-type: ${parsed.data.type}
+title: ${habitData.title}
+created: ${habitData.metadata.created}
+modified: ${habitData.metadata.modified}
+type: ${habitData.type}
 frequency: ${parsed.data.implementation.frequency}
 timeOfDay: ${parsed.data.implementation.timeOfDay || 'flexible'}
 duration: ${parsed.data.implementation.duration || 'N/A'}
 difficulty: ${parsed.data.metadata?.difficulty || 3}
 tags: ${JSON.stringify(parsed.data.metadata?.tags || [])}
+versions: ${JSON.stringify(habitData.versions || [], null, 2)}
 ---
 
 # ${parsed.data.title}
@@ -782,7 +1061,7 @@ ${parsed.data.implementation.location || 'Flexible'}
 <!-- Record changes to implementation -->
 `;
 
-      await fs.writeFile(validPath, content);
+      const notePath = await this.createNote('habits', parsed.data.title, content, { useDate: false });
 
       return {
         content: [{
@@ -807,63 +1086,127 @@ ${parsed.data.implementation.location || 'Flexible'}
       change: z.string().optional(),
       reason: z.string().optional(),
       outcome: z.string().optional()
-    }).safeParse(args)
+    }).safeParse(args);
 
     if (!parsed.success) {
-      throw new Error(`Invalid arguments for update_habit_tracking: ${parsed.error}`)
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for update_habit_tracking:\n${errors}\n\nUse get_help tool with tool_name="update_habit_tracking" for detailed usage guide.`);
     }
 
     try {
-      const today = new Date().toISOString().split('T')[0]
-      const notePath = `habits/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`
-      const normalizedPath = normalizeNotePath(notePath)
-      const fullPath = path.join(this.vaultRoot, normalizedPath)
-      const validPath = await validatePath(fullPath, [this.vaultRoot])
+      const today = new Date().toISOString().split('T')[0];
+      const notePath = `habits/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`;
+      const normalizedPath = normalizeNotePath(notePath);
+      const fullPath = path.join(this.vaultRoot, normalizedPath);
+      const validPath = await validatePath(fullPath, [this.vaultRoot]);
 
       // Read existing note
-      const content = await fs.readFile(validPath, 'utf-8')
-      const [frontmatter, ...bodyParts] = content.split('---\n').filter(Boolean)
-      const body = bodyParts.join('---\n')
+      const content = await fs.readFile(validPath, 'utf-8');
+      const [frontmatter, ...bodyParts] = content.split('---\n').filter(Boolean);
+      const body = bodyParts.join('---\n');
 
       // Update appropriate section based on update type
-      let updatedBody = body
-      const data = parsed.data
+      let updatedBody = body;
+      const data = parsed.data;
 
       if (data.update_type === 'completion' && data.completed !== undefined) {
-        const completionEntry = `- [${data.completed ? 'x' : ' '}] ${today}${data.notes ? ` - ${data.notes}` : ''}\n`
-        const completionSection = '### Completion History'
+        const completionEntry = `- [${data.completed ? 'x' : ' '}] ${today}${data.notes ? ` - ${data.notes}` : ''}\n`;
+        const completionSection = '### Completion History';
         updatedBody = body.replace(
           new RegExp(`${completionSection}.*?(?=###|$)`, 's'),
           `${completionSection}\n${completionEntry}`
-        )
+        );
       } else if (data.update_type === 'obstacle' && data.description) {
-        const obstacleEntry = `#### ${today}\n**Challenge:** ${data.description}\n**Solution:** ${data.solution || 'Not yet resolved'}\n\n`
-        const obstacleSection = '### Obstacles Encountered'
+        const obstacleEntry = `#### ${today}\n**Challenge:** ${data.description}\n**Solution:** ${data.solution || 'Not yet resolved'}\n\n`;
+        const obstacleSection = '### Obstacles Encountered';
         updatedBody = body.replace(
           new RegExp(`${obstacleSection}.*?(?=###|$)`, 's'),
           `${obstacleSection}\n${obstacleEntry}`
-        )
+        );
       } else if (data.update_type === 'adaptation' && data.change && data.reason) {
-        const adaptationEntry = `#### ${today}\n**Change:** ${data.change}\n**Reason:** ${data.reason}\n**Outcome:** ${data.outcome || 'Pending'}\n\n`
-        const adaptationSection = '### Adaptations Made'
+        const adaptationEntry = `#### ${today}\n**Change:** ${data.change}\n**Reason:** ${data.reason}\n**Outcome:** ${data.outcome || 'Pending'}\n\n`;
+        const adaptationSection = '### Adaptations Made';
         updatedBody = body.replace(
           new RegExp(`${adaptationSection}.*?(?=###|$)`, 's'),
           `${adaptationSection}\n${adaptationEntry}`
-        )
+        );
       }
 
       // Write updated content
-      await fs.writeFile(validPath, `---\n${frontmatter}---\n${updatedBody}`)
+      await fs.writeFile(validPath, `---\n${frontmatter}---\n${updatedBody}`);
 
       return {
         content: [{
           type: "text",
           text: `Successfully updated habit tracking for ${parsed.data.title}`
         }]
-      }
+      };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to update habit tracking: ${errorMessage}`)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to update habit tracking: ${errorMessage}`);
+    }
+  }
+
+  async createHealthMetric(args: unknown): Promise<ToolResponse> {
+    const parsed = CreateHealthMetricSchema.safeParse(args);
+    if (!parsed.success) {
+      const errors = parsed.error.errors.map(err => {
+        return `- ${err.path.join('.')}: ${err.message}`;
+      }).join('\n');
+      throw new Error(`Invalid arguments for create_health_metric:\n${errors}\n\nUse get_help tool with tool_name="create_health_metric" for detailed usage guide.`);
+    }
+
+    try {
+      // Add timestamps using utility function
+      const metricData = addMetadata(parsed.data);
+      const today = new Date().toISOString().split('T')[0];
+      
+      const content = `---
+title: ${metricData.title}
+date: ${metricData.date}
+type: ${metricData.type}
+values: ${JSON.stringify(metricData.values)}
+note: ${metricData.note || ''}
+links: ${JSON.stringify(metricData.links || [])}
+metadata:
+  created: ${metricData.metadata.created}
+  modified: ${metricData.metadata.modified}
+  version: ${metricData.metadata.version}
+  privacyLevel: ${parsed.data.metadata.privacyLevel}
+  tags: ${JSON.stringify(parsed.data.metadata.tags || [])}
+versions: ${JSON.stringify(metricData.versions || [], null, 2)}
+---
+
+# ${parsed.data.title}
+
+## Values
+${parsed.data.values.map(v => `- ${v.name}: ${v.value}${v.unit ? ` ${v.unit}` : ''}`).join('\n')}
+
+## Note
+${parsed.data.note || 'No additional notes.'}
+
+## Links
+${(parsed.data.links || []).map(link => `- [${link.type}] ${link.target} (${link.label || 'No label'})`).join('\n')}
+
+## History
+<!-- Track value changes over time -->
+### ${today}
+${parsed.data.values.map(v => `- Initial ${v.name}: ${v.value}${v.unit ? ` ${v.unit}` : ''}`).join('\n')}
+`;
+
+      const notePath = await this.createNote('metrics', parsed.data.title, content);
+
+      return {
+        content: [{
+          type: "text",
+          text: `Successfully created metric note: ${notePath}`
+        }]
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to create metric note: ${errorMessage}`);
     }
   }
 }
