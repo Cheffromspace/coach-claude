@@ -6,55 +6,50 @@ flowchart TB
     end
 
     subgraph Vault["Knowledge Management System"]
-        subgraph Active["Active Layer"]
+        subgraph Notes["Note Management"]
             DL[Daily Logs]
-            CI[Current Insights]
-            AS[Active Sessions]
-            subgraph Metadata["Enhanced Metadata"]
-                EC[Effectiveness Metrics]
-                TC[Training Categories]
-                PF[Privacy Flags]
-                QM[Quality Markers]
+            IN[Insights]
+            RF[Reflections]
+        end
+
+        subgraph Organization["Knowledge Organization"]
+            subgraph Tags["Tag System"]
+                CT[Content Tags]
+                TT[Tool Tags]
+                PT[Progress Tags]
+            end
+            
+            subgraph Links["Link System"]
+                RL[Related Notes]
+                TL[Tool Links]
+                CL[Context Links]
             end
         end
 
-        subgraph Consolidated["Consolidated Layer"]
-            subgraph Clusters["Topic Clusters"]
-                BP[Behavioral Patterns]
-                TP[Tool Patterns]
-                SP[Success Patterns]
+        subgraph Tools["Knowledge Tools"]
+            subgraph Core["Core Operations"]
+                CR[Create]
+                ED[Edit]
+                SR[Search]
             end
             
-            subgraph Synthesis["Synthesized Knowledge"]
-                GT[Growth Trajectory]
-                CG[Current Goals]
-                CS[Core Strategies]
+            subgraph Discovery["Discovery Tools"]
+                TS[Tag Search]
+                PS[Pattern Search]
+                CS[Content Search]
+            end
+            
+            subgraph Connection["Connection Tools"]
+                LK[Link Notes]
+                TG[Tag Notes]
+                RD[Related Discovery]
             end
         end
 
-        subgraph Training["Training Archive"]
-            subgraph Pairs["Conversation Pairs"]
-                IP[Input/Response]
-                CO[Coaching Outcomes]
-            end
-            
-            subgraph Examples["Training Examples"]
-                PR[Pattern Recognition]
-                TU[Tool Usage]
-                IN[Interventions]
-            end
-            
-            subgraph Context["Historical Context"]
-                HC[Historical Data]
-                MB[Major Breakthroughs]
-                LS[Learned Strategies]
-            end
-        end
-
-        subgraph System["System Configuration"]
-            PC[Processing Controls]
+        subgraph Config["System Configuration"]
             CF[Config Settings]
-            TL[Tool Links]
+            TD[Tool Definitions]
+            MT[Metadata Templates]
         end
     end
 
@@ -62,35 +57,58 @@ flowchart TB
     H --> DL
     T --> DL
     
-    DL --> CI
-    CI --> BP
-    CI --> TP
-    CI --> SP
+    DL --> IN
+    IN --> RF
     
-    BP --> GT
-    TP --> CS
-    SP --> MB
+    IN --> CT
+    T --> TT
+    RF --> PT
     
-    GT --> HC
-    MB --> LS
+    IN --> RL
+    T --> TL
+    DL --> CL
     
-    AS --> IP
-    AS --> CO
+    CR --> Notes
+    ED --> Notes
+    SR --> Discovery
     
-    BP --> PR
-    TP --> TU
-    CS --> IN
+    TS --> Tags
+    PS --> Links
+    CS --> Notes
+    
+    LK --> Links
+    TG --> Tags
+    RD --> Links
 
     classDef input fill:#b3e0ff,stroke:#0066cc,color:#000
-    classDef active fill:#e6b3ff,stroke:#6600cc,color:#000
-    classDef consolidated fill:#b3ffb3,stroke:#006600,color:#000
-    classDef training fill:#ffd9b3,stroke:#cc6600,color:#000
-    classDef system fill:#d9ffb3,stroke:#66cc00,color:#000
-    classDef metadata fill:#ffb3d9,stroke:#cc0066,color:#000
+    classDef notes fill:#e6b3ff,stroke:#6600cc,color:#000
+    classDef org fill:#b3ffb3,stroke:#006600,color:#000
+    classDef tools fill:#ffd9b3,stroke:#cc6600,color:#000
+    classDef config fill:#d9ffb3,stroke:#66cc00,color:#000
     
     class C,H,T input
-    class DL,CI,AS active
-    class BP,TP,SP,GT,CG,CS consolidated
-    class IP,CO,PR,TU,IN,HC,MB,LS training
-    class PC,CF,TL system
-    class EC,TC,PF,QM metadata
+    class DL,IN,RF notes
+    class CT,TT,PT,RL,TL,CL org
+    class CR,ED,SR,TS,PS,CS,LK,TG,RD tools
+    class CF,TD,MT config
+
+%% Knowledge Structure Notes:
+%% 1. Note Management: Basic building blocks
+%%    - Daily Logs: Regular activity tracking
+%%    - Insights: Key learnings and observations
+%%    - Reflections: Deeper understanding development
+%%
+%% 2. Knowledge Organization: Flexible structure
+%%    - Tags: Simple categorization system
+%%    - Links: Basic relationship tracking
+%%    - Organic organization through usage
+%%
+%% 3. Knowledge Tools: Simple, composable operations
+%%    - Core Operations: Basic note handling
+%%    - Discovery Tools: Finding information
+%%    - Connection Tools: Building relationships
+%%
+%% 4. System Configuration: Basic setup
+%%    - Settings: System configuration
+%%    - Tools: Available operations
+%%    - Templates: Basic structure guides
