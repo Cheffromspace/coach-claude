@@ -1,5 +1,14 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
+
+/**
+ * ObsidianServer implements the MCP server interface for Obsidian vault operations.
+ * 
+ * Note on naming conventions:
+ * - Tool method names use snake_case to align with MCP protocol conventions
+ * - Class names and internal TypeScript methods follow standard TypeScript camelCase
+ * - This ensures consistency with MCP standards while maintaining TypeScript best practices
+ */
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -51,25 +60,25 @@ export class ObsidianServer {
 
         switch (name) {
           case "create_journal":
-            return await this.toolHandlers.createJournal(args)
+            return await this.toolHandlers.create_journal(args)
           case "read_notes":
-            return await this.toolHandlers.readNotes(args)
+            return await this.toolHandlers.read_notes(args)
           case "search_notes":
-            return await this.toolHandlers.searchNotes(args)
+            return await this.toolHandlers.search_notes(args)
           case "query_notes":
-            return await this.toolHandlers.queryNotes(args)
+            return await this.toolHandlers.query_notes(args)
           case "discover_vault":
-            return await this.toolHandlers.discoverVault(args)
+            return await this.toolHandlers.discover_vault(args)
           case "create_goal":
-            return await this.toolHandlers.createGoal(args)
+            return await this.toolHandlers.create_goal(args)
           case "create_habit":
-            return await this.toolHandlers.createHabit(args)
+            return await this.toolHandlers.create_habit(args)
           case "update_goal_status":
-            return await this.toolHandlers.updateGoalStatus(args)
+            return await this.toolHandlers.update_goal_status(args)
           case "update_habit_tracking":
-            return await this.toolHandlers.updateHabitTracking(args)
+            return await this.toolHandlers.update_habit_tracking(args)
           case "create_health_metric":
-            return await this.toolHandlers.createHealthMetric(args)
+            return await this.toolHandlers.create_health_metric(args)
           default:
             throw new Error(`Unknown tool: ${name}`)
         }
