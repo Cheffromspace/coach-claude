@@ -50,12 +50,8 @@ export class ObsidianServer {
         const { name, arguments: args } = request.params
 
         switch (name) {
-          case "create_reflection":
-            return await this.toolHandlers.createReflection(args)
-          case "create_daily_log":
-            return await this.toolHandlers.createDailyLog(args)
-          case "create_insight":
-            return await this.toolHandlers.createInsight(args)
+          case "create_journal":
+            return await this.toolHandlers.createJournal(args)
           case "read_notes":
             return await this.toolHandlers.readNotes(args)
           case "search_notes":
@@ -72,8 +68,8 @@ export class ObsidianServer {
             return await this.toolHandlers.updateGoalStatus(args)
           case "update_habit_tracking":
             return await this.toolHandlers.updateHabitTracking(args)
-          case "create_metric_note":
-            return await this.toolHandlers.createMetricNote(args)
+          case "create_health_metric":
+            return await this.toolHandlers.createHealthMetric(args)
           default:
             throw new Error(`Unknown tool: ${name}`)
         }

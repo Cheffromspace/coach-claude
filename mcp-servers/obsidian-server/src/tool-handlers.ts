@@ -1,20 +1,24 @@
 import { z } from "zod"
 import fs from "fs/promises"
 import path from "path"
+import { TagManager } from "./tag-manager.js"
 import {
   validatePath,
   normalizeNotePath,
   readNote
 } from "./utils.js"
 import {
-  CreateDailyLogSchema,
-  CreateInsightSchema,
-  CreateReflectionSchema,
+  CreateJournalSchema,
   ReadNotesArgsSchema,
   QueryNotesArgsSchema,
   CreateGoalSchema,
   CreateHabitSchema,
-  CreateMetricNoteSchema
+  CreateHealthMetricSchema,
+  BaseMetadataSchema,
+  LinkSchema,
+  VersionSchema,
+  TagQuerySchema,
+  TagHierarchySchema
 } from "./schemas.js"
 import { parseDataviewQuery, executeQuery, getMarkdownFiles } from "./query-engine.js"
 
@@ -33,17 +37,41 @@ type ToolResponse = {
 };
 
 export class ToolHandlers {
-  constructor(private vaultRoot: string) {}
+  private tagManager: TagManager;
+
+  constructor(private vaultRoot: string) {
+    this.tagManager = new TagManager();
+    // Initialize tag manager
+    this.tagManager.initialize(vaultRoot).catch(error => {
+      console.error("Failed to initialize tag manager:", error);
+    });
+  }
 
   getToolDefinitions() {
     return {
-      create_reflection: {
-        name: "create_reflection",
-        description: "Creates reflection note. Required: title:str, period:str, progress_rating:1-5\nOptional groups:\n" +
-          "Context: focus_areas[], tags[], status:('active'|'completed'|'archived')\n" +
-          "Analysis: key_observations[], progress_analysis[], challenges[], insights[]\n" +
-          "Planning: action_items[], references[]",
-        inputSchema: CreateReflectionSchema
+      search_by_tags: {
+        name: "search_by_tags",
+        description: "Search notes by tags with advanced options. Required: tags[]:str[]\nOptional: operator:('AND'|'OR')='AND', includeChildren:bool=false, caseSensitive:bool=false",
+        inputSchema: z.object({
+          tags: z.array(z.string()),
+          operator: z.enum(['AND', 'OR']).default('AND'),
+          includeChildren: z.boolean().default(false),
+          caseSensitive: z.boolean().default(false)
+        })
+      },
+      set_tag_hierarchy: {
+        name: "set_tag_hierarchy",
+        description: "Set parent-child relationships between tags. Required: tag:str\nOptional: parent:str, children:str[]",
+        inputSchema: z.object({
+          tag: z.string(),
+          parent: z.string().optional(),
+          children: z.array(z.string()).optional()
+        })
+      },
+      get_tag_stats: {
+        name: "get_tag_stats",
+        description: "Get statistics about tags including usage counts and hierarchies",
+        inputSchema: z.object({})
       },
       read_notes: {
         name: "read_notes", 
@@ -61,21 +89,10 @@ export class ToolHandlers {
           filePattern: z.string().optional()
         })
       },
-      create_daily_log: {
-        name: "create_daily_log",
-        description: "Creates daily log. Required: mood:1-5, energy:1-5, session_type:('checkin'|'deep_dive'|'followup'), progress_rating:1-5, metadata:{effectiveness:num, trainingCategory:('technique'|'insight'|'pattern'|'strategy'), privacyLevel:('public'|'private'|'sensitive')}, summary:str\nOptional groups:\n" +
-          "Context: focus_areas[], keyTopics[]\n" +
-          "Progress: progressUpdates[], insights[], actionItems[]\n" +
-          "Follow-up: followupPoints[], notes[], relatedNotes[]",
-        inputSchema: CreateDailyLogSchema
-      },
-      create_insight: {
-        name: "create_insight",
-        description: "Creates insight. Required: title:str, description:str, metadata:{effectiveness:num, trainingCategory:('technique'|'insight'|'pattern'|'strategy'), privacyLevel:('public'|'private'|'sensitive')}\nOptional groups:\n" +
-          "Context: related_to[], tags[], status:('active'|'archived'), impact:('low'|'medium'|'high')\n" +
-          "Analysis: context:str, impact[], action_items[]\n" +
-          "Connections: related_insights[], pattern_recognition[], evidence[]",
-        inputSchema: CreateInsightSchema
+      create_journal: {
+        name: "create_journal",
+        description: "Creates journal entry. Required: title:str, date:str, content:str\nOptional: type:('reflection'|'health'|'activity'|'misc'), mood:1-5, energy:1-5, metrics:[{name:str, value:num|str, unit?:str}], links:[{source:str, target:str, type:str}], metadata:{...}, versions:[{...}]",
+        inputSchema: CreateJournalSchema
       },
       query_notes: {
         name: "query_notes",
@@ -136,18 +153,18 @@ export class ToolHandlers {
           outcome: z.string().optional()
         })
       },
-      create_metric_note: {
-        name: "create_metric_note",
-        description: "Creates metric note. Required: title:str, numericValue:num, unit:str\nOptional: textValue:str, note:str, tags:str[], metadata:{privacyLevel:('public'|'private'|'sensitive'), effectiveness:1-5}",
-        inputSchema: CreateMetricNoteSchema
+      create_health_metric: {
+        name: "create_health_metric",
+        description: "Creates health metric entry. Required: title:str, date:str, type:('weight'|'blood_pressure'|'sleep'|'pain'|'medication'|'custom'), values:[{name:str, value:num|str, unit?:str}]\nOptional: note:str, links:[{source:str, target:str, type:str}], metadata:{...}, versions:[{...}]",
+        inputSchema: CreateHealthMetricSchema
       }
     }
   }
 
-  async createMetricNote(args: unknown): Promise<ToolResponse> {
-    const parsed = CreateMetricNoteSchema.safeParse(args);
+  async createHealthMetric(args: unknown): Promise<ToolResponse> {
+    const parsed = CreateHealthMetricSchema.safeParse(args);
     if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_metric_note: ${parsed.error}`);
+      throw new Error(`Invalid arguments for create_health_metric: ${parsed.error}`);
     }
 
     try {
@@ -160,30 +177,35 @@ export class ToolHandlers {
 
       const content = `---
 title: ${parsed.data.title}
-created: ${today}
-modified: ${today}
-numericValue: ${parsed.data.numericValue}
-unit: ${parsed.data.unit}
-textValue: ${parsed.data.textValue || ''}
-tags: ${JSON.stringify(parsed.data.tags || [])}
-privacyLevel: ${parsed.data.metadata?.privacyLevel || 'private'}
-effectiveness: ${parsed.data.metadata?.effectiveness || 3}
+date: ${parsed.data.date}
+type: ${parsed.data.type}
+values: ${JSON.stringify(parsed.data.values)}
+note: ${parsed.data.note || ''}
+links: ${JSON.stringify(parsed.data.links || [])}
+metadata:
+  created: ${today}
+  modified: ${today}
+  version: 1
+  privacyLevel: ${parsed.data.metadata?.privacyLevel || 'private'}
+  tags: ${JSON.stringify(parsed.data.metadata?.tags || [])}
+versions: []
 ---
 
 # ${parsed.data.title}
 
-## Value
-- Numeric: ${parsed.data.numericValue} ${parsed.data.unit}
-${parsed.data.textValue ? `- Text: ${parsed.data.textValue}` : ''}
+## Values
+${parsed.data.values.map(v => `- ${v.name}: ${v.value}${v.unit ? ` ${v.unit}` : ''}`).join('\n')}
 
 ## Note
 ${parsed.data.note || 'No additional notes.'}
 
+## Links
+${(parsed.data.links || []).map(link => `- [${link.type}] ${link.target} (${link.label || 'No label'})`).join('\n')}
+
 ## History
 <!-- Track value changes over time -->
 ### ${today}
-- Initial value: ${parsed.data.numericValue} ${parsed.data.unit}
-${parsed.data.textValue ? `- Initial text: ${parsed.data.textValue}` : ''}
+${parsed.data.values.map(v => `- Initial ${v.name}: ${v.value}${v.unit ? ` ${v.unit}` : ''}`).join('\n')}
 `;
 
       await fs.writeFile(validPath, content);
@@ -197,6 +219,117 @@ ${parsed.data.textValue ? `- Initial text: ${parsed.data.textValue}` : ''}
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to create metric note: ${errorMessage}`);
+    }
+  }
+
+  async searchByTags(args: unknown): Promise<ToolResponse> {
+    const parsed = z.object({
+      tags: z.array(z.string()),
+      operator: z.enum(['AND', 'OR']).default('AND'),
+      includeChildren: z.boolean().default(false),
+      caseSensitive: z.boolean().default(false)
+    }).safeParse(args);
+
+    if (!parsed.success) {
+      throw new Error(`Invalid arguments for search_by_tags: ${parsed.error}`);
+    }
+
+    try {
+      const results = this.tagManager.searchByTags(
+        parsed.data.tags,
+        parsed.data.operator,
+        parsed.data.includeChildren,
+        parsed.data.caseSensitive
+      );
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            matchingFiles: results,
+            count: results.length,
+            searchCriteria: {
+              tags: parsed.data.tags,
+              operator: parsed.data.operator,
+              includeChildren: parsed.data.includeChildren,
+              caseSensitive: parsed.data.caseSensitive
+            }
+          }, null, 2)
+        }]
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to search by tags: ${errorMessage}`);
+    }
+  }
+
+  async setTagHierarchy(args: unknown): Promise<ToolResponse> {
+    const parsed = z.object({
+      tag: z.string(),
+      parent: z.string().optional(),
+      children: z.array(z.string()).optional()
+    }).safeParse(args);
+
+    if (!parsed.success) {
+      throw new Error(`Invalid arguments for set_tag_hierarchy: ${parsed.error}`);
+    }
+
+    try {
+      this.tagManager.setTagHierarchy(
+        parsed.data.tag,
+        parsed.data.parent,
+        parsed.data.children || []
+      );
+
+      const hierarchy = this.tagManager.getTagHierarchy(parsed.data.tag);
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            tag: parsed.data.tag,
+            hierarchy: hierarchy
+          }, null, 2)
+        }]
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to set tag hierarchy: ${errorMessage}`);
+    }
+  }
+
+  async getTagStats(args: unknown): Promise<ToolResponse> {
+    try {
+      const allTags = this.tagManager.getAllTags();
+      
+      // Group tags by usage count
+      const usageGroups = allTags.reduce((acc, {name, count}) => {
+        const group = count === 1 ? 'single' :
+                     count <= 5 ? 'low' :
+                     count <= 20 ? 'medium' : 'high';
+        if (!acc[group]) acc[group] = [];
+        acc[group].push({name, count});
+        return acc;
+      }, {} as Record<string, typeof allTags>);
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            totalTags: allTags.length,
+            usageStatistics: {
+              highUsage: usageGroups.high || [],    // > 20 uses
+              mediumUsage: usageGroups.medium || [], // 6-20 uses
+              lowUsage: usageGroups.low || [],      // 2-5 uses
+              singleUse: usageGroups.single || []   // 1 use
+            },
+            allTags: allTags
+          }, null, 2)
+        }]
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get tag statistics: ${errorMessage}`);
     }
   }
 
@@ -271,109 +404,47 @@ ${parsed.data.textValue ? `- Initial text: ${parsed.data.textValue}` : ''}
     }
   }
 
-  async createReflection(args: unknown): Promise<ToolResponse> {
-    const parsed = CreateReflectionSchema.safeParse(args);
+
+  async createJournal(args: unknown): Promise<ToolResponse> {
+    const parsed = CreateJournalSchema.safeParse(args);
     if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_reflection: ${parsed.error}`);
+      throw new Error(`Invalid arguments for create_journal: ${parsed.error}`);
     }
 
     try {
       const today = new Date().toISOString().split('T')[0];
-      const notePath = `reflections/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`;
+      const notePath = `journal/${parsed.data.date}-${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`;
       const normalizedPath = normalizeNotePath(notePath);
       const fullPath = path.join(this.vaultRoot, normalizedPath);
       const validPath = await validatePath(fullPath, [this.vaultRoot]);
 
       const content = `---
 title: ${parsed.data.title}
-period: ${parsed.data.period}
-progress_rating: ${parsed.data.progress_rating}
-focus_areas: ${JSON.stringify(parsed.data.focus_areas || [])}
-status: ${parsed.data.status || 'active'}
-tags: ${JSON.stringify(parsed.data.tags || [])}
-created: ${today}
+date: ${parsed.data.date}
+type: ${parsed.data.type || 'misc'}
+mood: ${parsed.data.mood || 'N/A'}
+energy: ${parsed.data.energy || 'N/A'}
+metrics: ${JSON.stringify(parsed.data.metrics || [])}
+links: ${JSON.stringify(parsed.data.links || [])}
+metadata:
+  created: ${today}
+  modified: ${today}
+  version: 1
+  privacyLevel: ${parsed.data.metadata.privacyLevel}
+  tags: ${JSON.stringify(parsed.data.metadata.tags || [])}
+versions: []
 ---
 
 # ${parsed.data.title}
 
-## Key Observations
-${(parsed.data.key_observations || []).map(obs => `- ${obs}`).join('\n')}
+## Content
+${parsed.data.content}
 
-## Progress Analysis
-${(parsed.data.progress_analysis || []).map(analysis => `- ${analysis}`).join('\n')}
+${parsed.data.metrics?.length ? `## Metrics
+${parsed.data.metrics.map(m => `- ${m.name}: ${m.value}${m.unit ? ` ${m.unit}` : ''}`).join('\n')}` : ''}
 
-## Challenges
-${(parsed.data.challenges || []).map(challenge => `- ${challenge}`).join('\n')}
-
-## Insights
-${(parsed.data.insights || []).map(insight => `- ${insight}`).join('\n')}
-
-## Action Items
-${(parsed.data.action_items || []).map(item => `- [ ] ${item}`).join('\n')}
-
-## References
-${(parsed.data.references || []).map(ref => `- ${ref}`).join('\n')}
-`;
-
-      await fs.writeFile(validPath, content);
-
-      return {
-        content: [{
-          type: "text",
-          text: `Successfully created reflection note: ${notePath}`
-        }]
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to create reflection: ${errorMessage}`);
-    }
-  }
-
-  async createDailyLog(args: unknown): Promise<ToolResponse> {
-    const parsed = CreateDailyLogSchema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_daily_log: ${parsed.error}`);
-    }
-
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const notePath = `daily_logs/${today}.md`;
-      const normalizedPath = normalizeNotePath(notePath);
-      const fullPath = path.join(this.vaultRoot, normalizedPath);
-      const validPath = await validatePath(fullPath, [this.vaultRoot]);
-
-      const content = `---
-date: ${today}
-mood: ${parsed.data.mood}
-energy: ${parsed.data.energy}
-session_type: ${parsed.data.session_type}
-progress_rating: ${parsed.data.progress_rating}
-focus_areas: ${JSON.stringify(parsed.data.focus_areas || [])}
-metadata:
-  effectiveness: ${parsed.data.metadata.effectiveness}
-  trainingCategory: ${parsed.data.metadata.trainingCategory}
-  privacyLevel: ${parsed.data.metadata.privacyLevel}
----
-
-# Daily Log - ${today}
-
-## Summary
-${parsed.data.summary}
-
-## Key Topics
-${(parsed.data.keyTopics || []).map(topic => `- ${topic}`).join('\n')}
-
-## Progress Updates
-${(parsed.data.progressUpdates || []).map(update => `- ${update}`).join('\n')}
-
-## Action Items
-${(parsed.data.actionItems || []).map(item => `- [ ] ${item}`).join('\n')}
-
-## Follow-up Points
-${(parsed.data.followupPoints || []).map(point => `- ${point}`).join('\n')}
-
-## Notes
-${(parsed.data.notes || []).map(note => `- ${note}`).join('\n')}
+${parsed.data.links?.length ? `## Links
+${parsed.data.links.map(link => `- [${link.type}] ${link.target} (${link.label || 'No label'})`).join('\n')}` : ''}
 `;
 
       await fs.writeFile(validPath, content);
@@ -390,65 +461,6 @@ ${(parsed.data.notes || []).map(note => `- ${note}`).join('\n')}
     }
   }
 
-  async createInsight(args: unknown): Promise<ToolResponse> {
-    const parsed = CreateInsightSchema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for create_insight: ${parsed.error}`);
-    }
-
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const notePath = `insights/${parsed.data.title.toLowerCase().replace(/\s+/g, '-')}.md`;
-      const normalizedPath = normalizeNotePath(notePath);
-      const fullPath = path.join(this.vaultRoot, normalizedPath);
-      const validPath = await validatePath(fullPath, [this.vaultRoot]);
-
-      const content = `---
-title: ${parsed.data.title}
-created: ${today}
-status: ${parsed.data.status || 'active'}
-impact_level: ${parsed.data.impact_level || 'medium'}
-metadata:
-  effectiveness: ${parsed.data.metadata.effectiveness}
-  trainingCategory: ${parsed.data.metadata.trainingCategory}
-  privacyLevel: ${parsed.data.metadata.privacyLevel}
-tags: ${JSON.stringify(parsed.data.tags || [])}
----
-
-# ${parsed.data.title}
-
-## Description
-${parsed.data.description}
-
-## Context
-${parsed.data.context || ''}
-
-## Impact
-${(parsed.data.impact || []).map(imp => `- ${imp}`).join('\n')}
-
-## Action Items
-${(parsed.data.action_items || []).map(item => `- [ ] ${item}`).join('\n')}
-
-## Related Insights
-${(parsed.data.related_insights || []).map(insight => `- ${insight}`).join('\n')}
-
-## References
-${(parsed.data.references || []).map(ref => `- ${ref}`).join('\n')}
-`;
-
-      await fs.writeFile(validPath, content);
-
-      return {
-        content: [{
-          type: "text",
-          text: `Successfully created insight note: ${notePath}`
-        }]
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to create insight: ${errorMessage}`);
-    }
-  }
 
   async readNotes(args: unknown): Promise<ToolResponse> {
     const parsed = ReadNotesArgsSchema.safeParse(args);
@@ -682,14 +694,11 @@ tags: ${JSON.stringify(parsed.data.metadata?.tags || [])}
 ## Description
 ${parsed.data.description}
 
-## Identity Statement
-${parsed.data.identity || ''}
-
 ## Metrics
-${parsed.data.metrics.map(metric => `- [ ] ${metric}`).join('\n')}
+${parsed.data.metrics.map(metric => `- ${metric.name}: ${metric.target}${metric.unit ? ` ${metric.unit}` : ''}${metric.current ? ` (Current: ${metric.current})` : ''}`).join('\n')}
 
-## Related Habits
-${(parsed.data.relatedHabits || []).map(habit => `- ${habit}`).join('\n')}
+## Progress
+${(parsed.data.progress || []).map(p => `### ${p.date}\n- Value: ${p.value}\n${p.notes ? `- Notes: ${p.notes}` : ''}`).join('\n\n')}
 
 ## Progress Tracking
 <!-- Record specific progress updates -->
@@ -758,9 +767,10 @@ ${parsed.data.reward}
 ### Location
 ${parsed.data.implementation.location || 'Flexible'}
 
-## Habit Stacking
-${parsed.data.stacking?.before ? '### Before\n' + parsed.data.stacking.before.map((h: string) => `- ${h}`).join('\n') : ''}
-${parsed.data.stacking?.after ? '### After\n' + parsed.data.stacking.after.map((h: string) => `- ${h}`).join('\n') : ''}
+## Implementation Details
+### Time of Day: ${parsed.data.implementation.timeOfDay || 'Flexible'}
+### Duration: ${parsed.data.implementation.duration || 'N/A'}
+### Location: ${parsed.data.implementation.location || 'Flexible'}
 
 ### Completion History
 <!-- Track daily completions -->
