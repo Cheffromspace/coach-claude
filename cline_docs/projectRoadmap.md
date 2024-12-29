@@ -48,36 +48,36 @@ To create a deeply personalized AI coaching system that evolves with the user, c
       - [ ] Privacy flags
       - [ ] Quality markers
 
-  - [ ] Consolidated Layer Development
-    - [ ] Topic clustering system
-    - [ ] Pattern recognition framework
-    - [ ] Knowledge synthesis pipeline
-    - [ ] Relationship tracking
+  - [ ] Organic Knowledge Building
+    - [ ] Simple note linking tools
+    - [ ] Basic tagging system
+    - [ ] Flexible search capabilities
+    - [ ] Ad-hoc relationship creation
 
   - [ ] Training Archive Foundation
-    - [ ] Conversation pair storage
-    - [ ] Training example collection
-    - [ ] Historical context management
-    - [ ] Dataset preparation structure
+    - [ ] Simple conversation storage
+    - [ ] Basic example collection
+    - [ ] Lightweight context tracking
+    - [ ] Flexible data organization
 
-- [ ] Knowledge Consolidation System
-  - [ ] Consolidation Processor
-    - [ ] Inactivity period detection
-    - [ ] Processing pipeline
-    - [ ] Token optimization
-    - [ ] Quality assessment
+- [ ] Knowledge Tools Development
+  - [ ] Search and Discovery
+    - [ ] Enhanced note search
+    - [ ] Tag-based filtering
+    - [ ] Simple pattern matching
+    - [ ] Content exploration tools
 
-  - [ ] Pattern Recognition
-    - [ ] Basic pattern detection
-    - [ ] Metadata analysis
-    - [ ] Relationship mapping
-    - [ ] Effectiveness tracking
+  - [ ] Knowledge Connection
+    - [ ] Manual linking tools
+    - [ ] Tag management
+    - [ ] Basic relationship tracking
+    - [ ] Note connection helpers
 
   - [ ] Health Data Integration
-    - [ ] One-way sync system
-    - [ ] Basic metrics tracking
-    - [ ] Privacy-aware storage
-    - [ ] Data correlation framework
+    - [ ] Simple metric tracking
+    - [ ] Basic data import
+    - [ ] Privacy controls
+    - [ ] Manual correlation tools
 
 ### Phase 3: Enhancement
 - [ ] Advanced Processing
@@ -127,18 +127,17 @@ To create a deeply personalized AI coaching system that evolves with the user, c
 - [x] Completed Phase 1 validation
 
 ## Current Focus
-- [ ] Implementing three-tier knowledge system
-- [ ] Developing consolidation processing
-- [ ] Setting up enhanced metadata system
-- [ ] Establishing health data integration
+- [ ] Building simple, composable knowledge tools
+- [ ] Implementing basic search and linking capabilities
+- [ ] Setting up flexible tagging system
+- [ ] Creating lightweight health data tracking
 
 ## Future Considerations
-- Advanced pattern recognition capabilities
-- Enhanced visualization systems
-- Local model integration possibilities
-- Advanced training data preparation
-- Specialized coaching modules
-- Deep storage optimization
-- Advanced querying capabilities
+- Simple visualization tools
+- Basic local model integration
+- Lightweight training data collection
+- Modular tool development
+- Flexible storage solutions
+- Enhanced search capabilities
 
 *Note: This roadmap is a living document and will be updated as the project evolves and new insights emerge.*

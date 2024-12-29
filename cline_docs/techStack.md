@@ -28,34 +28,29 @@
 ### MCP Servers
 - **Obsidian Server**
   - Direct integration with Obsidian vault
-  - Mode-based tool access:
-    * Session Mode (Default):
-      - Simplified tools for quick note-taking
-      - Basic metadata schema
-      - Core operations only
-    * Consolidation Mode:
-      - Full feature set for knowledge processing
-      - Advanced metadata and relationships
-      - Pattern detection and analysis
+  - Core knowledge tools:
+    * Note Operations:
+      - Simple creation and editing
+      - Basic metadata tracking
+      - Tag support
+      - Quick linking
+    * Search and Discovery:
+      - Enhanced note search
+      - Tag-based filtering
+      - Basic pattern matching
+    * Knowledge Connection:
+      - Manual linking
+      - Tag management
+      - Relationship tracking
   - Vault: C:/Users/Jonathan/Documents/coach-claude
-  - Tools by Mode:
-    * Session Mode Tools:
-      - create_daily_log (simplified)
-      - create_insight (basic)
-      - read_notes
-      - write_note
-      - search_notes
-      - list_templates
-    * Additional Consolidation Mode Tools:
-      - create_consolidated_knowledge
-      - create_training_example
-      - query_patterns
-      - query_notes
-      - Advanced metadata operations
-  - Mode Control:
-    * Command-line argument (--mode)
-    * Environment variable support
-    * Safe default to session mode
+  - Available Tools:
+    - create_note
+    - edit_note
+    - search_notes
+    - list_templates
+    - add_tags
+    - create_link
+    - explore_content
 
 - **Puppeteer Server**
   - Browser automation and control
@@ -191,24 +186,24 @@
 
 ## Architecture Decisions
 
-### Why Mode-Based Architecture?
-1. Cognitive Load
-   - Simplified interface during sessions
-   - Focused tool availability
-   - Clear separation of concerns
-   - Reduced complexity when needed
+### Why Tool-Based Architecture?
+1. Flexibility
+   - Composable tools for different needs
+   - Mix and match capabilities
+   - Organic workflow development
+   - User-driven complexity
 
-2. Data Quality
-   - Structured knowledge capture
-   - Consistent metadata application
-   - Proper relationship tracking
-   - Pattern recognition support
+2. Simplicity
+   - Basic building blocks
+   - Clear tool purposes
+   - Easy to understand
+   - Quick to implement
 
-3. Workflow Optimization
-   - Task-appropriate tools
-   - Streamlined session capture
-   - Dedicated consolidation phase
-   - Enhanced knowledge synthesis
+3. Extensibility
+   - Easy to add new tools
+   - Simple integration
+   - Gradual enhancement
+   - Natural evolution
 
 ### Why Chunked Caching?
 1. Performance

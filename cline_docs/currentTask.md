@@ -1,105 +1,97 @@
 # Current Task Status
 
 ## Context
-We are implementing Phase 2 (Knowledge Management) with a focus on the three-tier knowledge system. We've enhanced our templates and tools to support better metadata tracking, pattern recognition, and knowledge consolidation.
+We are implementing Phase 2 (Knowledge Management) with a focus on building simple, composable tools for knowledge organization. Our approach emphasizes organic knowledge building through lightweight, flexible tools that can be combined as needed.
 
 ## Current Status
-Implemented mode-based tool access:
+Implementing core knowledge tools:
 
-1. Session Mode (Default):
-   - Simplified tools for quick note-taking
-   - Basic metadata schema
-   - Core operations only
-   - Focused on immediate capture
+1. Basic Note Operations:
+   - Simple note creation and editing
+   - Basic metadata tracking
+   - Tag support
+   - Quick linking capabilities
 
-2. Consolidation Mode:
-   - Full feature set for knowledge processing
-   - Advanced metadata and relationships
-   - Pattern detection and analysis
-   - Knowledge synthesis tools
+2. Search and Discovery:
+   - Enhanced note search
+   - Tag-based filtering
+   - Basic pattern matching
+   - Content exploration
 
-3. Mode Control:
-   - Command-line argument (--mode)
-   - Environment variable support
-   - Clear validation messages
-   - Safe default to session mode
+3. Knowledge Connection:
+   - Manual linking tools
+   - Tag management
+   - Simple relationship tracking
+   - Note connection helpers
 
 ## Technical Details
 
 ### Completed Changes
 1. Enhanced schemas.ts:
-   - Added mode-specific schemas
-   - Implemented discriminated unions
-   - Simplified session mode metadata
-   - Full consolidation mode metadata
-   - Type-safe mode handling
+   - Simplified metadata schema
+   - Basic tag support
+   - Link tracking
+   - Type-safe implementations
 
 2. Enhanced tool-handlers.ts:
-   - Added mode-based access control
-   - Implemented mode validation
-   - Mode-specific section handling
+   - Streamlined tool implementations
+   - Basic search functionality
+   - Tag management
+   - Link handling
    - Improved error handling
-   - TypeScript type safety
 
 3. Server Configuration:
-   - Mode selection via CLI
+   - Simplified setup
    - Vault path configuration
-   - Mode-specific tool exposure
-   - Enhanced error messages
+   - Basic tool exposure
+   - Clear error messages
 
 ### Tool Availability
 
-#### Session Mode Tools
-- create_daily_log (simplified)
-- create_insight (basic)
-- read_notes
-- write_note
+#### Core Tools
+- create_note
+- edit_note
 - search_notes
 - list_templates
-
-#### Consolidation Mode Tools
-All session mode tools plus:
-- create_consolidated_knowledge
-- create_training_example
-- query_patterns
-- query_notes
-- Advanced metadata operations
+- add_tags
+- create_link
+- explore_content
 
 ## Next Steps
-1. Template Optimization
-   - Create mode-specific templates
-   - Optimize metadata fields
-   - Enhance variable substitution
-   - Improve template discovery
+1. Tool Enhancement
+   - Improve search capabilities
+   - Enhance tag management
+   - Streamline linking process
+   - Add basic pattern matching
 
-2. Pattern Recognition
-   - Enhance consolidation mode analysis
-   - Implement pattern detection
-   - Track usage patterns
-   - Optimize workflows
+2. User Experience
+   - Simplify tool usage
+   - Improve feedback
+   - Enhance discovery
+   - Document workflows
 
 3. Documentation Updates
-   - Update user guides for modes
-   - Document mode-specific features
+   - Update user guides
    - Create example workflows
-   - Document testing procedures
+   - Document tool combinations
+   - Add usage patterns
 
 ## Dependencies
 - Obsidian server functionality
-- Template system
-- Query engine
-- Pattern detection system
+- Basic template system
+- Search functionality
+- Tag management
 
 ## Technical Considerations
-- Mode-specific validation
-- Schema consistency
-- Template compatibility
-- Query optimization
-- Type safety
+- Tool composability
+- Search performance
+- Tag organization
+- Link management
 - Error handling
+- User feedback
 
 ## Related Documentation
-- template_specification.md: Template structure and metadata
-- knowledgeStructure.md: Three-tier system design
-- system_architecture.md: Integration details
-- techStack.md: Implementation specifics
+- template_specification.md: Basic template structure
+- knowledgeStructure.md: Organic knowledge building
+- system_architecture.md: Tool integration
+- techStack.md: Implementation details
