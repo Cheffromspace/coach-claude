@@ -1,302 +1,197 @@
 # Codebase Summary
 
-## Key Components and Their Interactions
+This project consists of two main components that work together through the Model Context Protocol (MCP):
 
-### MCP Client Core (`mcp_client/`)
-The foundation of our system, implementing the Model Context Protocol for AI model interaction.
+## 1. Python MCP Client (`mcp_client/`)
+
+A robust Python implementation of the MCP client that connects to and manages multiple MCP servers. This client serves as the foundation for AI model interactions through the MCP protocol.
+
+### Core Components
 
 #### Configuration (`config/`)
 - **Config Manager** (`config_manager.py`)
-  - Handles configuration loading and management
-  - Manages environment variables
-  - Provides server settings management
-  - Ensures consistent configuration across components
+  - MCP server configuration management
+  - Environment variable handling
+  - Server settings coordination
 
 #### Server Management (`server/`)
 - **Server Manager** (`server_manager.py`)
-  - Manages MCP server lifecycle
-  - Handles server connections
-  - Implements error recovery
-  - Coordinates resource access
-  - Windows networking optimization:
-    * Proper Winsock initialization
-    * DNS resolution configuration
+  - MCP server lifecycle management
+  - Multi-server connection handling
+  - Protocol-compliant communication
+  - Error recovery and health monitoring
+  - Windows-specific optimizations:
+    * Winsock initialization
+    * DNS resolution
     * Network stack management
-    * Process networking setup
-  - Enhanced process management:
-    * Detailed process monitoring
-    * Comprehensive logging
-    * Graceful cleanup procedures
-    * Health check system
+  - Process management:
+    * Health checks
+    * Resource monitoring
+    * Graceful cleanup
 
 #### Processing (`processing/`)
 - **Message Processor** (`message_processor.py`)
-  - Handles message formatting
-  - Manages message routing
-  - Implements processing pipeline
+  - MCP protocol message formatting
+  - Server routing logic
+  - Processing pipeline management
 
 - **Query Processor** (`query_processor.py`)
-  - Manages query handling
-  - Implements response processing
-  - Coordinates tool usage
+  - MCP tool and resource coordination
+  - Response processing
+  - Cross-server query handling
 
 #### Utilities (`utils/`)
 - **Logging Config** (`logging_config.py`)
-  - Configures system logging
-  - Manages log formats and outputs
+  - System-wide logging configuration
+  - MCP communication logging
 
-### Chat Interface (`mcp_chat/`)
-- **Chat Implementation** (`chat.py`)
-  - Provides user interaction layer
-  - Integrates conversation and prompt management
-  - Handles message flow and commands
-  - Supports session management
-  - Cache performance monitoring and statistics
-  - Documentation caching commands
-  - Enhanced /cache command with block statistics
+### Client Features
+- Concurrent connections to multiple MCP servers
+- Protocol-compliant message handling
+- Robust error recovery
+- Efficient resource management
+- Cross-server tool orchestration
 
-- **Conversation Manager** (`conversation_manager.py`)
-  - Manages conversation sessions
-  - Tracks message history and tool usage
-  - Handles metadata and context
-  - Provides session persistence
-  - Implements chunked conversation caching:
-    * Splits messages into manageable chunks
-    * Size-based chunk management (5 messages/2000 tokens)
-    * Individual cache blocks per chunk
-    * Automatic chunk size optimization
-  - Cache block management:
-    * Tracks active, cleaned, and total blocks
-    * Automatic cleanup on session load
-    * Block creation and cleanup monitoring
-    * Performance statistics tracking
-  - Tracks cache performance metrics:
-    * Block allocation/deallocation rates
-    * Cache hit/miss ratios
-    * Memory usage patterns
-    * Token savings calculations
+## 2. TypeScript MCP Server (Obsidian Integration)
 
-- **System Prompts** (`system_prompts.py`)
-  - Advanced NLP-based context analysis using spaCy:
-    * Linguistic feature analysis
-    * Named entity recognition
-    * Part-of-speech tagging
-    * Sentiment analysis
-  - High-performance pattern matching with flashtext:
-    * O(n) complexity keyword matching
-    * Efficient tool and context detection
-    * Extensible keyword dictionaries
-  - Enhanced context detection:
-    * Message type classification (task/reflection/insight/planning)
-    * Complexity estimation
-    * Interaction phase detection
-    * Tool requirement prediction
-  - Intelligent prompt management:
-    * Dynamic template selection
-    * Context-aware prompt generation
-    * Cache control optimization
-    * Support for specialized contexts (privacy, tools, etc.)
+A specialized MCP server implementation that provides Obsidian vault integration capabilities through the MCP protocol.
+
+### Server Components
+
+#### Core Server (`src/`)
+- **Server Implementation** (`server.ts`)
+  - MCP protocol endpoint
+  - Message handling
+  - Tool/resource registration
+  - Connection management
+
+- **Tool Definitions** (`tool-definitions.ts`)
+  - MCP tool specifications
+  - Input/output schemas
+  - Tool documentation
+
+#### Handlers (`src/handlers/`)
+- **Note Operations** (`note-handlers.ts`)
+  - Note CRUD operations
+  - Metadata management
+  - Template processing
+
+- **Search Functionality** (`search-handlers.ts`)
+  - Content search
+  - Pattern matching
+  - Query optimization
+
+- **Tag Management** (`tag-handlers.ts`)
+  - Tag operations
+  - Relationship tracking
+  - Hierarchy management
+
+#### Utilities (`src/utils/`)
+- **Note Utilities** (`note-utils.ts`)
+  - Note processing helpers
+  - Content manipulation
+  - Metadata handling
+
+### Server Features
+- Full Obsidian vault integration
+- Rich note manipulation tools
+- Advanced search capabilities
+- Metadata and relationship management
+- Template system support
+
+## MCP Protocol Integration
+
+The two components communicate through the Model Context Protocol:
+
+```mermaid
+graph TD
+    subgraph "Python MCP Client"
+        Config["Configuration Manager"]
+        ServerMgr["Server Manager"]
+        MsgProc["Message Processor"]
+    end
+
+    subgraph "TypeScript MCP Server"
+        Server["Server Implementation"]
+        Tools["Tool Handlers"]
+        Utils["Utilities"]
+    end
+
+    ServerMgr -->|"MCP Protocol"| Server
+    MsgProc -->|"Tool Requests"| Tools
+    Tools -->|"Responses"| MsgProc
+```
+
+### Protocol Features
+- Standardized tool definitions
+- Resource management
+- Error handling
+- Security controls
+- Connection lifecycle management
 
 ## Data Flow
-1. User Input → Chat Interface
-   - Command processing
-   - Message capture
-   - Session management
-   - System prompt integration
 
-2. Chat Interface → Conversation Manager
-   - Message recording
-   - Context management
-   - Tool usage tracking
-   - Metadata handling
-   - Cache block management
-   - Chunk size optimization
+1. Client Initialization
+   - Configuration loading
+   - Server discovery
+   - Connection establishment
 
-3. Conversation Manager → Message Processor
-   - Message formatting with context
-   - System prompt integration
-   - Pipeline initialization
-   - Cache control handling
+2. Server Registration
+   - Tool/resource registration
+   - Capability announcement
+   - Protocol handshake
 
-4. Message Processor → Query Processor
-   - Query extraction with context
-   - Tool discovery and coordination
-   - Response preparation and tracking
-   - Cache performance monitoring
-
-5. Query Processor → Server Manager
-   - Server selection and health checks
-   - Tool execution and monitoring
-   - Response management and error handling
-   - Prompt effectiveness tracking:
-     * Tool success rates
-     * Cache hit rates
-     * Usage patterns
-     * Context adaptation
-
-5. Server Manager → MCP Servers
-   - Protocol handling
-   - Resource management
-   - Error handling
-   - Obsidian integration via dedicated server:
-     * Note operations (read/write/search)
-     * Template system with variable substitution
-     * Specialized note creation (insights/reflections)
-     * YAML frontmatter support
-     * Backlink management
-     * Regex-based note search
+3. Operation Flow
+   - Client tool request
+   - Protocol message formatting
+   - Server processing
+   - Response handling
 
 ## External Dependencies
-Key dependencies from pyproject.toml and requirements.txt:
-- Python core libraries
-- MCP implementation requirements
-- Development tools (UV)
-- Testing frameworks
-- NLP and Pattern Matching:
-  * spaCy (>=3.7.2): Advanced natural language processing
-  * flashtext (>=2.7): High-performance keyword matching
 
-### MCP Servers
-- **Obsidian Server**: 
-  * Enhanced note operations with metadata support
-  * Advanced template system with variable substitution
-  * Specialized note creation (insights/reflections/training examples)
-  * Pattern detection and analysis
-  * Relationship tracking
-  * Components:
-    - Schema System (schemas.ts):
-      * Centralized tool definitions
-      * Metadata validation schemas
-      * Input validation for all tools
-    - Tool Handlers (tool-handlers.ts):
-      * Template discovery and usage
-      * Pattern-based note searching
-      * Enhanced metadata handling
-      * Improved error handling
-    - Query Engine (query-engine.ts):
-      * Pattern detection
-      * Note analysis
-      * Relationship mapping
-- **Filesystem Server**: File system operations
-- **GitHub Server**: Repository operations
-- **Fetch Server**: Web content retrieval
-- **Brave Search Server**: Web search capabilities
-- **Weather Server**: Weather data access
+### MCP Client Dependencies
+- Python 3.8+
+- Protocol handling libraries
+- Networking utilities
 
-## Recent Significant Changes
-1. Obsidian Server Enhancement
-   - Added TOOL_DEFINITIONS for server configuration
-   - Enhanced metadata system with:
-     * Effectiveness tracking
-     * Training categories
-     * Privacy levels
-     * Quality markers
-     * Pattern tracking
-   - Added new tools:
-     * listTemplates for template discovery
-     * createFromTemplate for template-based note creation
-     * searchNotes for regex-based searching
-   - Improved error handling and validation
-   - Enhanced type safety with TypeScript
+### MCP Server Dependencies
+- Node.js
+- TypeScript
+- MCP SDK
+- Obsidian API
 
-2. Phase 1 Foundation Completion
-   - Completed basic MCP client implementation
-   - Finalized knowledge structure setup
-   - Implemented daily logging system
-   - Established core integration components
-   - Documented system architecture
+## Recent Changes
 
-2. Cache System Optimization
-   - Enhanced chunked conversation caching
-   - Improved block management and tracking
-   - Added session-level persistence
-   - Implemented memory usage monitoring
-   - Enhanced performance analytics
-   - Added block lifetime analysis
+- [x] Enhanced MCP protocol compliance
+- [x] Improved server connection management
+- [x] Added tool definition schemas
+- [x] Enhanced error handling
+- [x] Optimized message processing
 
-3. MCP Server Updates
-   - Added create_daily_log tool to Obsidian server
-   - Enhanced query_notes functionality
-   - Updated server documentation
-   - Improved tool error handling
-   - Enhanced server health monitoring
+## Next Steps
 
-4. Documentation Improvements
-   - Updated project roadmap with Phase 1 completion
-   - Enhanced technical documentation
-   - Added detailed server capabilities
-   - Updated cache system documentation
-   - Improved architecture documentation
+1. Protocol Enhancements
+   - Extended tool capabilities
+   - Resource optimization
+   - Connection pooling
 
-5. System Architecture
-   - Refined component interactions
-   - Enhanced error handling
-   - Improved logging system
-   - Updated configuration management
-   - Enhanced tool orchestration
+2. Client Improvements
+   - Enhanced error recovery
+   - Better server monitoring
+   - Tool usage analytics
 
-## Project Structure
-```
-coach-claude/
-├── mcp_client/               # Core MCP implementation
-│   ├── config/              # Configuration management
-│   ├── server/              # Server handling
-│   ├── processing/          # Message and query processing
-│   └── utils/               # Utility functions
-├── mcp_chat/                # Chat interface
-├── cline_docs/              # Project documentation
-├── chat_history/            # Conversation records
-└── logs/                    # System logs
-```
+3. Server Development
+   - Additional Obsidian features
+   - Performance optimization
+   - Extended search capabilities
 
-## Additional Documentation
+## Documentation Structure
+
 All project documentation is maintained in `cline_docs/`:
-- `projectRoadmap.md`: Project vision and milestones
-- `currentTask.md`: Active development focus
-- `techStack.md`: Technology choices and rationale
-- `codebaseSummary.md`: This document
+- `mpc_architecture.md`: MCP protocol details
+- `projectRoadmap.md`: Development roadmap
+- `techStack.md`: Technology choices
+- `currentTask.md`: Active development
+- Additional specialized documentation
 
-### Obsidian Vault Structure
-Located in `Documents/coach-claude/`:
-- `daily_logs/`: Daily activity and progress tracking
-- `insights/`: Captured insights and learnings
-- `reflections/`: Periodic reflection notes
-- `templates/`: Note templates for consistent structure
-  - `daily_log.md`: Template for daily logs
-  - `insight.md`: Template for capturing key insights
-    * Context tracking with dates and relationships
-    * Impact assessment
-    * Action items
-    * Related insights linking
-  - `reflection.md`: Template for periodic reflections
-    * Flexible periods (daily/weekly/monthly)
-    * Key observations and patterns
-    * Progress tracking
-    * Challenge identification
-    * Next steps planning
-
-## Next Steps in Development
-1. Testing & Validation
-   - Validate system prompt effectiveness
-   - Test knowledge consolidation workflow
-   - Verify note relationship functionality
-   - Monitor cache performance metrics
-
-2. Knowledge Management
-   - Test memory retrieval accuracy
-   - Validate context building
-   - Verify pattern recognition
-   - Test insight extraction
-
-3. Performance Optimization
-   - Monitor cache block usage
-   - Track prompt selection metrics
-   - Analyze tool usage patterns
-   - Optimize conversation chunking
-
-4. Infrastructure
-   - Enhance error handling
-   - Improve monitoring systems
-   - Expand test coverage
-
-*Note: This document will be updated as the codebase evolves and new components are added.*
+*Note: This document is regularly updated to reflect the evolving architecture and implementation details of both the MCP client and server components.*

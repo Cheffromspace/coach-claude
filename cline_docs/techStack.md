@@ -1,311 +1,314 @@
 # Technology Stack
 
-## Core Technologies
+This document outlines the technology choices for both the Python MCP Client and TypeScript MCP Server components.
 
-### Programming Language
-- Python
+## 1. Python MCP Client
+
+### Core Technologies
+- **Python 3.8+**
   - Primary development language
-  - Strong ecosystem for data processing and analysis
-  - Excellent integration capabilities
-  - Rich library support for planned features
+  - Rich ecosystem for protocol handling
+  - Excellent async support
+  - Strong type hints
 
-### Knowledge Management
-- Obsidian
-  - Markdown-based note-taking system
-  - Local-first approach aligning with privacy principles
-  - Powerful linking and organization capabilities
-  - Extensible through plugins
-  - Custom vault structure support
-
-### Model Context Protocol (MCP)
-- Custom Python-based MCP client implementation
-  - Server management system
-  - Configuration handling
+### Client Architecture
+- **MCP Protocol Implementation**
+  - Custom protocol client
+  - Server connection management
   - Message processing pipeline
-  - Query processing system
-  - Tool orchestration capabilities
+  - Tool orchestration
 
-### MCP Servers
-- **Obsidian Server**
-  - Direct integration with Obsidian vault
-  - Core knowledge tools:
-    * Note Operations:
-      - Simple creation and editing
-      - Basic metadata tracking
-      - Tag support
-      - Quick linking
-    * Search and Discovery:
-      - Enhanced note search
-      - Tag-based filtering
-      - Basic pattern matching
-    * Knowledge Connection:
-      - Manual linking
-      - Tag management
-      - Relationship tracking
-  - Vault: C:/Users/Jonathan/Documents/coach-claude
-  - Available Tools:
-    - create_note
-    - edit_note
-    - search_notes
-    - list_templates
-    - add_tags
-    - create_link
-    - explore_content
+### Key Libraries
+- **Networking**
+  - asyncio for async operations
+  - socket for low-level networking
+  - Windows socket optimizations
 
-- **Puppeteer Server**
-  - Browser automation and control
-  - Screenshot capabilities
-  - Page interaction and navigation
-  - Console log access
+- **Processing**
+  - Protocol buffers for serialization
+  - JSON for configuration
+  - YAML for structured data
 
-- **Fetch Server**
-  - Web content retrieval
-  - URL fetching and content extraction
-  - Support for various content types
-  - Markdown conversion options
+### Development Tools
+- **Package Management**
+  - UV for dependency management
+    * Fast, reliable installation
+    * Lock file support
+    * Deterministic builds
 
-- **Weather Server**
-  - Weather data retrieval
-  - Forecast information (1-5 days)
-  - Current conditions access
-  - City-based queries
+- **Project Configuration**
+  - pyproject.toml
+    * Modern Python configuration
+    * Dependency specification
+    * Build system settings
 
-## Project Components
+## 2. TypeScript MCP Server (Obsidian Integration)
 
-### Caching System
-- **Conversation Caching**
-  - Chunked conversation management:
-    * 5 messages or 2000 tokens per chunk
-    * Individual cache blocks per chunk
-    * Automatic chunk size optimization
-    * Dynamic chunk allocation
-    * Session-level persistence
-  - Cache block management:
-    * Active/cleaned block tracking
-    * Automatic cleanup on session load
-    * Block creation monitoring
-    * Usage statistics tracking
-    * Memory usage patterns
-    * Block lifetime analysis
+### Core Technologies
+- **TypeScript**
+  - Strong type system
+  - Modern JavaScript features
+  - Excellent IDE support
+  - Rich ecosystem
 
-- **Prompt Caching**
-  - Ephemeral caching with 5-minute TTL
-  - System prompt caching
-  - Documentation caching
-  - Performance tracking
-  - Token usage analytics
+- **Node.js**
+  - Runtime environment
+  - Async I/O
+  - Process management
+  - Module system
 
-- **Cache Control**
-  - Automatic caching for large content (>1024 chars)
-  - Selective caching for static content
-  - Cache hit tracking
-  - Token savings calculation
-  - Cache effectiveness metrics
-  - Block-level statistics:
-    * Active/cleaned blocks
-    * Block creation rates
-    * Block lifetime tracking
-    * Memory usage patterns
-
-### MCP Client (`mcp_client/`)
-- **Configuration Management** (`config/`)
-  - JSON-based configuration system
-  - Environment variable support
-  - Flexible server configuration
-
-- **Server Management** (`server/`)
-  - MCP server lifecycle management
-  - Connection handling
-  - Error recovery
+### Server Components
+- **MCP SDK**
+  - Protocol implementation
+  - Tool definition system
   - Resource management
-  - Windows networking optimization:
-    * Winsock initialization and cleanup
-    * DNS resolution configuration
-    * Network stack management
-    * Process networking setup
-  - Process management:
-    * Health check system
-    * Detailed monitoring
-    * Graceful cleanup
-    * Comprehensive logging
+  - Connection handling
 
-- **Processing Pipeline** (`processing/`)
-  - Message processor
-  - Query processor
-  - Extensible processing system
+- **Obsidian Integration**
+  - Vault access
+  - Note operations
+  - Metadata management
+  - Search capabilities
 
-- **Utilities** (`utils/`)
-  - Logging configuration
-  - Helper functions
-  - Common utilities
+### Development Tools
+- **Build System**
+  - TypeScript compiler
+  - ESLint configuration
+  - Prettier formatting
 
-### Chat Interface (`mcp_chat/`)
-- User interaction layer
-- Message handling
-- Response formatting
-- Session management
-- Cache performance monitoring
-- Documentation caching commands
-- Enhanced cache statistics reporting
+- **Package Management**
+  - npm for dependencies
+  - package.json configuration
+  - Lock file management
 
-## Development Tools
+## MCP Protocol Implementation
 
-### Package Management
-- UV for dependency management
-  - Fast, reliable Python package installation
-  - Lock file support
-  - Deterministic builds
+### Protocol Features
+- **Standardization**
+  - Common message format
+  - Tool/resource definitions
+  - Error handling patterns
+  - Security controls
 
-### Project Configuration
-- pyproject.toml
-  - Modern Python project configuration
-  - Dependency specification
-  - Build system configuration
+- **Communication**
+  - Bidirectional messaging
+  - Binary protocol
+  - Efficient serialization
+  - Connection management
+
+### Security
+- **Local-First**
+  - Data remains on device
+  - Controlled access
+  - Process isolation
+  - Resource boundaries
+
+- **Protocol Security**
+  - Connection validation
+  - Message integrity
+  - Access controls
+  - Error boundaries
+
+## Development Environment
 
 ### Version Control
-- Git
-  - Source code management
+- **Git**
+  - Source management
   - Change tracking
+  - Branch strategy
   - Collaboration support
 
-## Planned Integrations
+### Code Quality
+- **Linting**
+  - Python: flake8, mypy
+  - TypeScript: ESLint
+  - Consistent style enforcement
+  - Type checking
 
-### Health Data
-- Samsung Health API (planned)
-  - Activity tracking
-  - Health metrics
-  - Sleep data
-  - Wellness indicators
+### Testing
+- **Python Tests**
+  - pytest framework
+  - Protocol testing
+  - Integration tests
+  - Mock servers
 
-### Knowledge Processing
-- Natural Language Processing
-  - Pattern recognition
-  - Insight extraction
-  - Text analysis
-  - Semantic understanding
+- **TypeScript Tests**
+  - Jest framework
+  - Tool testing
+  - Handler coverage
+  - Integration validation
 
 ## Architecture Decisions
 
-### Why Tool-Based Architecture?
-1. Flexibility
-   - Composable tools for different needs
-   - Mix and match capabilities
-   - Organic workflow development
-   - User-driven complexity
+### Why Two Separate Projects?
+1. **Separation of Concerns**
+   - Client focuses on protocol and connections
+   - Server specializes in Obsidian integration
+   - Clear boundaries and responsibilities
+   - Independent evolution
 
-2. Simplicity
-   - Basic building blocks
-   - Clear tool purposes
-   - Easy to understand
-   - Quick to implement
+2. **Technology Optimization**
+   - Python's strengths for client/protocol
+   - TypeScript's advantages for Obsidian integration
+   - Each language in its optimal domain
+   - Ecosystem-specific benefits
 
-3. Extensibility
-   - Easy to add new tools
-   - Simple integration
-   - Gradual enhancement
-   - Natural evolution
+3. **Maintenance Benefits**
+   - Independent versioning
+   - Focused testing
+   - Clear documentation
+   - Simplified debugging
 
-### Why Chunked Caching?
-1. Performance
-   - Prevents cache block exhaustion
-   - Optimizes memory usage
-   - Enables efficient cleanup
-   - Reduces context loss risk
+### Why MCP?
+1. **Standardization**
+   - Common protocol across components
+   - Clear interface definitions
+   - Consistent patterns
+   - Future compatibility
 
-2. Efficiency
-   - Granular cache control
-   - Optimized chunk sizes
-   - Automatic resource management
-   - Improved memory utilization
-
-3. Reliability
-   - Automatic cleanup mechanisms
-   - Session-level cache management
-   - Block tracking and monitoring
-   - Performance statistics
-
-### Why Caching?
-1. Performance
-   - Reduced token processing
-   - Faster response times
-   - Lower API costs
-   - Optimized memory usage
-
-2. Efficiency
-   - Reuse of static content
-   - Optimized conversation history
-   - Smart documentation handling
-   - Granular cache control
-
-3. Analytics
-   - Cache performance tracking
-   - Token usage monitoring
-   - Cost optimization insights
-   - Block-level statistics
-
-### Why Python?
-1. Rapid Development
-   - Quick prototyping capabilities
-   - Rich ecosystem
-   - Extensive library support
-
-2. Data Processing
-   - Strong data analysis libraries
-   - Machine learning capabilities
-   - Text processing tools
-
-3. Integration Support
-   - API connectivity
-   - File system operations
-   - Process management
-
-### Why Obsidian?
-1. Privacy-First
-   - Local file storage
-   - User-controlled data
-   - No cloud dependency
-
-2. Flexibility
-   - Custom vault structure
-   - Markdown-based
-   - Extensible system
-
-3. Knowledge Graph
-   - Bidirectional linking
-   - Relationship visualization
-   - Emergent structure
-
-### Why Custom MCP Client?
-1. Control
-   - Custom implementation
-   - Specific feature support
-   - Integration flexibility
-
-2. Extensibility
-   - Custom tool support
+2. **Flexibility**
+   - Easy to add new servers
+   - Protocol evolution
+   - Tool extensibility
    - Resource management
-   - Processing pipeline control
 
-3. Privacy
-   - Local processing
-   - Data control
-   - Security management
+3. **Security**
+   - Local-first design
+   - Process isolation
+   - Access control
+   - Resource boundaries
+
+## 3. Web Interface (Nexus)
+
+### Core Technologies
+- **Next.js 14**
+  - App Router for modern routing
+  - React Server Components
+  - Streaming and Suspense
+  - Built-in optimizations
+
+- **React 18+**
+  - Concurrent rendering
+  - Automatic batching
+  - Transitions API
+  - Suspense improvements
+
+### UI Framework
+- **Tailwind CSS**
+  - Utility-first approach
+  - JIT compilation
+  - Custom design system
+  - Responsive patterns
+
+### Animation Stack
+- **Framer Motion**
+  - Fluid animations
+  - Gesture support
+  - Layout animations
+  - AnimatePresence
+
+- **GSAP**
+  - Complex sequences
+  - Performance optimization
+  - Timeline control
+  - ScrollTrigger
+
+- **React Spring**
+  - Physics-based animations
+  - Interpolation
+  - Gesture integration
+  - Smooth transitions
+
+- **Lottie**
+  - Vector animations
+  - Micro-interactions
+  - Lightweight
+  - Cross-platform
+
+### Development Tools
+- **TypeScript**
+  - Type safety
+  - IDE integration
+  - Code reliability
+  - Documentation
+
+- **ESLint + Prettier**
+  - Code consistency
+  - Best practices
+  - Automatic formatting
+  - Error prevention
+
+### Build Tools
+- **Webpack 5**
+  - Code splitting
+  - Asset optimization
+  - Module federation
+  - Tree shaking
+
+- **PostCSS**
+  - CSS processing
+  - Vendor prefixing
+  - Future CSS features
+  - Custom plugins
+
+## Architecture Decisions
+
+### Why Next.js?
+1. **Performance**
+   - Server components
+   - Automatic optimization
+   - Edge capabilities
+   - Streaming
+
+2. **Developer Experience**
+   - File-based routing
+   - API routes
+   - TypeScript support
+   - Built-in optimizations
+
+3. **Flexibility**
+   - Hybrid rendering
+   - Middleware
+   - API routes
+   - Custom configurations
+
+### Why Multiple Animation Libraries?
+1. **Specialized Use Cases**
+   - Framer Motion: UI animations
+   - GSAP: Complex sequences
+   - React Spring: Physics
+   - Lottie: Vector animations
+
+2. **Performance**
+   - Library-specific optimizations
+   - Targeted usage
+   - Minimal overhead
+   - Efficient rendering
+
+3. **Developer Experience**
+   - Familiar APIs
+   - Strong ecosystem
+   - Good documentation
+   - Active communities
 
 ## Future Considerations
-- Local model integration possibilities
-- Additional data source integrations
-- Enhanced pattern recognition systems
-- Advanced visualization tools
-- Specialized processing pipelines
-- Advanced cache optimization strategies:
-  * Predictive chunk sizing
-  * Dynamic TTL adjustment
-  * Context-aware caching
-  * Memory usage optimization
-- Mode-specific optimizations:
-  * Template customization
-  * Metadata field optimization
-  * Pattern detection enhancements
-  * Workflow refinements
 
-*Note: This document will be updated as technology choices evolve and new components are added to the system.*
+### UI Evolution
+- Advanced animations
+- 3D interactions
+- AR/VR support
+- Voice interfaces
+
+### Performance
+- Edge computing
+- WebAssembly
+- Worker threads
+- Service workers
+
+### Features
+- Offline support
+- Real-time sync
+- Native features
+- Cross-platform
+
+*Note: This document is updated as technology choices evolve and new requirements emerge.*
