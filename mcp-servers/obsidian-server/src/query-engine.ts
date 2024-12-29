@@ -24,12 +24,24 @@ export function parseDataviewQuery(query: string): {
   }
   
   if (whereMatch) {
-    const conditions = whereMatch[1].split(/\s+AND\s+/i)
+    const conditions = whereMatch[1].split(/\s+(?:AND|OR)\s+/i)
     result.where = conditions.reduce((acc, condition) => {
+      // Handle contains() function
+      const containsMatch = condition.match(/contains\((\w+),\s*"([^"]+)"\)/)
+      if (containsMatch) {
+        const [_, field, value] = containsMatch
+        acc[field] = { op: 'contains', value }
+        return acc
+      }
+      
+      // Handle standard operators
       const [field, op, value] = condition.split(/\s*(=|!=|>|<|>=|<=)\s*/)
-      acc[field.trim()] = value.trim().replace(/^"(.*)"$/, '$1') // Remove quotes
+      acc[field.trim()] = { 
+        op: op || '=',
+        value: value.trim().replace(/^"(.*)"$/, '$1') // Remove quotes
+      }
       return acc
-    }, {} as Record<string, any>)
+    }, {} as Record<string, { op: string, value: any }>)
   }
   
   if (sortMatch) {
@@ -141,13 +153,27 @@ export async function executeQuery(
     
     if (!params.where) return true
     
-    return Object.entries(params.where).every(([field, value]) => {
+    return Object.entries(params.where).every(([field, condition]) => {
       const noteValue = note.frontmatter[field]
-      if (Array.isArray(value)) {
-        return Array.isArray(noteValue) && 
-          value.every(v => noteValue.includes(v))
+      
+      switch (condition.op) {
+        case 'contains':
+          return Array.isArray(noteValue) && noteValue.includes(condition.value)
+        case '=':
+          return noteValue === condition.value
+        case '!=':
+          return noteValue !== condition.value
+        case '>':
+          return noteValue > condition.value
+        case '<':
+          return noteValue < condition.value
+        case '>=':
+          return noteValue >= condition.value
+        case '<=':
+          return noteValue <= condition.value
+        default:
+          return false
       }
-      return noteValue === value
     })
   })
 

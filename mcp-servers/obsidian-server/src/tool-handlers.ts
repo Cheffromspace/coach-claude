@@ -38,170 +38,75 @@ export class ToolHandlers {
     return {
       create_reflection: {
         name: "create_reflection",
-        description: "Creates a reflection note analyzing progress and insights. Required: title (string), period (string), progress_rating (1-5). Optional fields in groups:\n" +
-          "- Context: focus_areas[], tags[], status ('active'|'completed'|'archived')\n" +
-          "- Analysis: key_observations[], progress_analysis[], challenges[], insights[]\n" +
-          "- Patterns: behavioral[], tool_usage[], success[], growth_trajectory[]\n" +
-          "- Planning: strategy_evolution[], action_items[]\n" +
-          "- References: supporting_evidence[], connected_insights[], similar_patterns[], references[]",
-        example: {
-          title: "Q1 2024 Progress Review",
-          period: "2024 Q1",
-          progress_rating: 4,
-          focus_areas: ["Tool Development", "Pattern Recognition"],
-          status: "active",
-          metadata: {
-            effectiveness: 4,
-            trainingCategory: "pattern"
-          }
-        },
+        description: "Creates reflection note. Required: title:str, period:str, progress_rating:1-5\nOptional groups:\n" +
+          "Context: focus_areas[], tags[], status:('active'|'completed'|'archived')\n" +
+          "Analysis: key_observations[], progress_analysis[], challenges[], insights[]\n" +
+          "Planning: action_items[], references[]",
         inputSchema: CreateReflectionSchema
       },
       read_notes: {
-        name: "read_notes",
-        description: "Reads full content of specified notes. Required: paths[] (note paths relative to vault root, include .md extension)",
-        example: {
-          paths: [
-            "daily_logs/2024-03-19.md",
-            "insights/problem-solving-pattern.md"
-          ]
-        },
+        name: "read_notes", 
+        description: "Reads notes. Required: paths[]:str[] (relative paths with .md)",
         inputSchema: ReadNotesArgsSchema
       },
       search_notes: {
         name: "search_notes",
-        description: "Searches all markdown files using regex. Required: pattern (regex string). Optional: caseSensitive (boolean, default false). Returns matches with context.",
-        example: {
-          pattern: "\\b(API|REST)\\b",
-          caseSensitive: true
-        },
+        description: "Searches notes. Required: pattern:regex\nOptional: caseSensitive:bool, maxMatches:num=3, contextLines:num=2, filePattern:regex",
         inputSchema: z.object({
           pattern: z.string(),
-          caseSensitive: z.boolean().optional()
+          caseSensitive: z.boolean().optional(),
+          maxMatchesPerFile: z.number().optional(),
+          contextLines: z.number().optional(),
+          filePattern: z.string().optional()
         })
       },
       create_daily_log: {
         name: "create_daily_log",
-        description: "Creates daily log entry. Required: mood (1-5), energy (1-5), session_type ('checkin'|'deep_dive'|'followup'), progress_rating (1-5), metadata (effectiveness, trainingCategory, privacyLevel), summary. Optional fields in groups:\n" +
-          "- Context: focus_areas[], keyTopics[]\n" +
-          "- Progress: progressUpdates[], insights[], actionItems[]\n" +
-          "- Follow-up: followupPoints[], notes[], relatedNotes[]\n" +
-          "- Metadata: qualityMarkers[], clusters[], patterns[], relationships[]",
-        example: {
-          mood: 4,
-          energy: 3,
-          session_type: "deep_dive",
-          progress_rating: 4,
-          metadata: {
-            effectiveness: 4,
-            trainingCategory: "technique",
-            privacyLevel: "private",
-            qualityMarkers: ["clear_communication", "actionable_outcomes"]
-          },
-          focus_areas: ["Project Planning", "Architecture"],
-          summary: "Productive session focused on project planning",
-          keyTopics: ["System Architecture", "Development Timeline"],
-          progressUpdates: ["Completed initial research phase"],
-          actionItems: ["Create initial wireframes", "Set up development environment"],
-          followupPoints: ["Review architecture decisions next session"]
-        },
+        description: "Creates daily log. Required: mood:1-5, energy:1-5, session_type:('checkin'|'deep_dive'|'followup'), progress_rating:1-5, metadata:{effectiveness:num, trainingCategory:('technique'|'insight'|'pattern'|'strategy'), privacyLevel:('public'|'private'|'sensitive')}, summary:str\nOptional groups:\n" +
+          "Context: focus_areas[], keyTopics[]\n" +
+          "Progress: progressUpdates[], insights[], actionItems[]\n" +
+          "Follow-up: followupPoints[], notes[], relatedNotes[]",
         inputSchema: CreateDailyLogSchema
       },
       create_insight: {
         name: "create_insight",
-        description: "Creates insight entry. Required: title, description, metadata (effectiveness, trainingCategory, privacyLevel). Optional fields in groups:\n" +
-          "- Context: related_to[], tags[], status ('active'|'archived'), impact_level ('low'|'medium'|'high')\n" +
-          "- Analysis: context, impact[], action_items[]\n" +
-          "- Connections: related_insights[], pattern_recognition[], evidence_examples[], references[]\n" +
-          "- Metadata: qualityMarkers[], clusters[], patterns[], relationships[]",
-        example: {
-          title: "Effective Pattern Recognition",
-          description: "Systematic approach to identifying recurring patterns leads to better insights",
-          status: "active",
-          impact_level: "high",
-          metadata: {
-            effectiveness: 4,
-            trainingCategory: "pattern",
-            privacyLevel: "public",
-            qualityMarkers: ["clear_pattern", "actionable"]
-          },
-          impact: ["Improves decision making", "Enables proactive responses"],
-          action_items: ["Document pattern recognition process", "Create pattern template"]
-        },
+        description: "Creates insight. Required: title:str, description:str, metadata:{effectiveness:num, trainingCategory:('technique'|'insight'|'pattern'|'strategy'), privacyLevel:('public'|'private'|'sensitive')}\nOptional groups:\n" +
+          "Context: related_to[], tags[], status:('active'|'archived'), impact:('low'|'medium'|'high')\n" +
+          "Analysis: context:str, impact[], action_items[]\n" +
+          "Connections: related_insights[], pattern_recognition[], evidence[]",
         inputSchema: CreateInsightSchema
       },
       query_notes: {
         name: "query_notes",
-        description: "Query notes using Dataview syntax (e.g. 'FROM \"insights\" WHERE status=active SORT date LIMIT 5')",
-        example: {
-          query: "FROM \"insights\" WHERE status=active SORT date LIMIT 5"
-        },
+        description: "Queries notes using Dataview. Required: query:str (e.g. 'FROM \"insights\" WHERE status=active')",
         inputSchema: QueryNotesArgsSchema
       },
       discover_vault: {
         name: "discover_vault",
-        description: "Analyze vault structure to discover available folders and fields for querying",
-        example: {},
+        description: "Analyzes vault structure and available fields",
         inputSchema: z.object({})
       },
       create_goal: {
         name: "create_goal",
-        description: "Creates a goal entry incorporating identity-based habits principles. Required: title, description, type ('outcome'|'process'|'identity'), metrics[]. Optional fields in groups:\n" +
-          "- Context: targetDate, relatedHabits[], identity\n" +
-          "- Progress: progress[], reflection[]\n" +
-          "- Metadata: priority ('low'|'medium'|'high'), tags[], privacyLevel",
-        example: {
-          title: "Master TypeScript Development",
-          description: "Become proficient in TypeScript for better code quality",
-          type: "process",
-          metrics: ["Complete TypeScript course", "Convert 3 projects to TypeScript"],
-          identity: "I am a developer who values type safety",
-          metadata: {
-            priority: "high",
-            tags: ["development", "learning"]
-          }
-        },
+        description: "Creates goal. Required: title:str, description:str, type:('outcome'|'process'|'identity'), metrics[]\nOptional groups:\n" +
+          "Context: targetDate:str, relatedHabits[], identity:str\n" +
+          "Metadata: priority:('low'|'medium'|'high'), tags[], privacyLevel:str",
         inputSchema: CreateGoalSchema
       },
       create_habit: {
         name: "create_habit",
-        description: "Creates a habit entry using Atomic Habits framework. Required: title, description, type ('build'|'break'), cue, craving, response, reward, implementation.frequency. Optional fields in groups:\n" +
-          "- Implementation: timeOfDay, location, duration\n" +
-          "- Tracking: streaks, completion_history, obstacles, adaptations\n" +
-          "- Stacking: before[], after[]\n" +
-          "- Metadata: difficulty (1-5), tags[], privacyLevel",
-        example: {
-          title: "Morning Code Review",
-          description: "Review code first thing each morning",
-          type: "build",
-          cue: "Arriving at desk with morning coffee",
-          craving: "Feeling prepared and proactive",
-          response: "Open GitHub PRs and spend 30 mins reviewing",
-          reward: "Satisfaction of helping team and learning",
-          implementation: {
-            frequency: "daily",
-            timeOfDay: "9:00 AM",
-            duration: "30 minutes"
-          },
-          metadata: {
-            difficulty: 3,
-            tags: ["development", "team"]
-          }
-        },
+        description: "Creates habit. Required: title:str, description:str, type:('build'|'break'), cue:str, craving:str, response:str, reward:str, implementation:{frequency:str}\nOptional groups:\n" +
+          "Implementation: timeOfDay:str, location:str, duration:str\n" +
+          "Stacking: before[], after[]\n" +
+          "Metadata: difficulty:1-5, tags[], privacyLevel:str",
         inputSchema: CreateHabitSchema
       },
       update_goal_status: {
         name: "update_goal_status",
-        description: "Updates goal progress and status. Required: title, update_type ('progress'|'reflection'|'status'). Fields by update_type:\n" +
-          "- progress: value (number), notes (optional)\n" +
-          "- reflection: content, insights[] (optional)\n" +
-          "- status: new_status ('active'|'completed'|'abandoned')",
-        example: {
-          title: "Master TypeScript Development",
-          update_type: "progress",
-          value: 75,
-          notes: "Completed advanced TypeScript course modules"
-        },
+        description: "Updates goal. Required: title:str, update_type:('progress'|'reflection'|'status')\nFields by type:\n" +
+          "progress: value:num, notes?:str\n" +
+          "reflection: content:str, insights?[]\n" +
+          "status: new_status:('active'|'completed'|'abandoned')",
         inputSchema: z.object({
           title: z.string(),
           update_type: z.enum(['progress', 'reflection', 'status']),
@@ -214,16 +119,10 @@ export class ToolHandlers {
       },
       update_habit_tracking: {
         name: "update_habit_tracking",
-        description: "Updates habit tracking information. Required: title, update_type ('completion'|'obstacle'|'adaptation'). Fields by update_type:\n" +
-          "- completion: completed (boolean), notes (optional)\n" +
-          "- obstacle: description, solution (optional)\n" +
-          "- adaptation: change, reason, outcome (optional)",
-        example: {
-          title: "Morning Code Review",
-          update_type: "completion",
-          completed: true,
-          notes: "Reviewed 3 PRs and provided detailed feedback"
-        },
+        description: "Updates habit. Required: title:str, update_type:('completion'|'obstacle'|'adaptation')\nFields by type:\n" +
+          "completion: completed:bool, notes?:str\n" +
+          "obstacle: description:str, solution?:str\n" +
+          "adaptation: change:str, reason:str, outcome?:str",
         inputSchema: z.object({
           title: z.string(),
           update_type: z.enum(['completion', 'obstacle', 'adaptation']),
@@ -521,7 +420,10 @@ ${(parsed.data.references || []).map(ref => `- ${ref}`).join('\n')}
   async searchNotes(args: unknown): Promise<ToolResponse> {
     const parsed = z.object({
       pattern: z.string(),
-      caseSensitive: z.boolean().optional()
+      caseSensitive: z.boolean().optional(),
+      maxMatchesPerFile: z.number().optional(),
+      contextLines: z.number().optional(),
+      filePattern: z.string().optional()
     }).safeParse(args);
 
     if (!parsed.success) {
@@ -529,33 +431,75 @@ ${(parsed.data.references || []).map(ref => `- ${ref}`).join('\n')}
     }
 
     try {
+      const maxMatchesPerFile = parsed.data.maxMatchesPerFile || 3;
+      const contextLines = parsed.data.contextLines || 2;
+      const fileRegex = parsed.data.filePattern ? new RegExp(parsed.data.filePattern) : null;
+      
       const files = await getMarkdownFiles(this.vaultRoot, this.vaultRoot);
-      const results: string[] = [];
+      const results: Array<{
+        file: string;
+        matches: Array<{
+          line: number;
+          content: string;
+          context: string[];
+        }>;
+      }> = [];
 
       for (const file of files) {
-        const content = await fs.readFile(file, 'utf-8');
-        const regex = new RegExp(parsed.data.pattern, parsed.data.caseSensitive ? 'g' : 'gi');
-        const matches = content.match(regex);
+        const relativePath = path.relative(this.vaultRoot, file);
+        
+        // Skip if file doesn't match pattern
+        if (fileRegex && !fileRegex.test(relativePath)) {
+          continue;
+        }
 
-        if (matches) {
-          const relativePath = path.relative(this.vaultRoot, file);
-          results.push(`File: ${relativePath}`);
-          results.push('Matches:');
-          matches.forEach(match => {
-            const context = content.substring(
-              Math.max(0, content.indexOf(match) - 50),
-              Math.min(content.length, content.indexOf(match) + match.length + 50)
-            );
-            results.push(`...${context}...`);
+        const content = await fs.readFile(file, 'utf-8');
+        const lines = content.split('\n');
+        const regex = new RegExp(parsed.data.pattern, parsed.data.caseSensitive ? 'g' : 'gi');
+        
+        const fileMatches: Array<{
+          line: number;
+          content: string;
+          context: string[];
+        }> = [];
+
+        for (let i = 0; i < lines.length && fileMatches.length < maxMatchesPerFile; i++) {
+          const line = lines[i];
+          if (regex.test(line)) {
+            // Get surrounding context lines
+            const contextStart = Math.max(0, i - contextLines);
+            const contextEnd = Math.min(lines.length, i + contextLines + 1);
+            const context = lines.slice(contextStart, contextEnd);
+
+            fileMatches.push({
+              line: i + 1,
+              content: line.trim(),
+              context: context.map(l => l.trim())
+            });
+          }
+        }
+
+        if (fileMatches.length > 0) {
+          results.push({
+            file: relativePath,
+            matches: fileMatches
           });
-          results.push('---');
         }
       }
+
+      // Format results as structured text
+      const formattedResults = results.map(result => {
+        const fileHeader = `File: ${result.file}`;
+        const matches = result.matches.map(match => {
+          return `  Line ${match.line}:\n    ${match.context.join('\n    ')}`;
+        }).join('\n\n');
+        return `${fileHeader}\n${matches}`;
+      }).join('\n\n---\n\n');
 
       return {
         content: [{
           type: "text",
-          text: results.join('\n')
+          text: formattedResults
         }]
       };
     } catch (error) {
@@ -571,15 +515,31 @@ ${(parsed.data.references || []).map(ref => `- ${ref}`).join('\n')}
     }
 
     try {
+      let query = parsed.data.query;
+      
+      // Handle tag queries by converting them to proper Dataview syntax
+      if (query.includes('#')) {
+        // Convert #tag format to proper WHERE clause
+        const tags = query.match(/#[\w-]+/g)?.map(tag => tag.substring(1));
+        if (tags && tags.length > 0) {
+          const tagConditions = tags.map(tag => `contains(tags, "${tag}")`).join(' or ');
+          query = `FROM "" WHERE ${tagConditions}`;
+        }
+      }
+
+      // Parse the modified query into components
+      const queryParams = parseDataviewQuery(query);
+      
+      // Execute the query with parsed parameters
       const results = await executeQuery(this.vaultRoot, {
-        from: parsed.data.query,
+        ...queryParams,
         format: "list"
       });
 
       return {
         content: [{
           type: "text",
-          text: JSON.stringify(results, null, 2)
+          text: results
         }]
       };
     } catch (error) {
