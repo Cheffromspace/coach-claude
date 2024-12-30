@@ -1,175 +1,148 @@
-# Frontend Implementation TASKLIST
+# Server Decoupling TASKLIST
 
-## Project Setup and Configuration
+## Phase 1: Core Infrastructure Setup
 
-### 1. Initialize Project Structure
-- [ ] Create new Next.js 14 project with TypeScript
-  ```bash
-  npx create-next-app@latest nexus-frontend --typescript --tailwind --app --src-dir
-  ```
-- [ ] Set up project directory structure:
-  ```
-  nexus-frontend/
-  ├── src/
-  │   ├── app/
-  │   ├── components/
-  │   │   ├── core/
-  │   │   ├── layout/
-  │   │   ├── shared/
-  │   │   └── animations/
-  │   ├── hooks/
-  │   ├── styles/
-  │   ├── types/
-  │   └── utils/
-  ```
+### 1. Directory Structure Creation
+- [x] Create `/src/core` directory
+  - Purpose: House base server functionality and plugin system
+  - Contains: Base server, plugin manager, interfaces
+  - Why: Separate core MCP protocol handling from plugin-specific code
 
-### 2. Development Environment
-- [ ] Configure TypeScript
-  - [ ] Update tsconfig.json with strict settings
-  - [ ] Add path aliases
-  - [ ] Configure type definitions
-- [ ] Set up ESLint and Prettier
-  - [ ] Add custom rules following naming_conventions.md
-  - [ ] Configure Tailwind CSS sorting
-  - [ ] Add import sorting
-- [ ] Configure Tailwind CSS
-  - [ ] Create custom theme configuration
-  - [ ] Set up design tokens
-  - [ ] Configure responsive breakpoints
+- [x] Create `/src/shared` directory
+  - Purpose: Common utilities and types used across all plugins
+  - Contains: File operations, path handling, logging
+  - Why: Avoid code duplication and maintain consistency
 
-### 3. Animation Libraries
-- [ ] Install and configure animation dependencies
-  ```bash
-  npm install framer-motion @react-spring/web gsap lottie-react
-  ```
-- [ ] Create animation providers and utilities
-- [ ] Set up shared animation configs
+- [x] Create `/src/plugins` directory
+  - Purpose: Container for all plugin implementations
+  - Structure: Each plugin in its own subdirectory
+  - Why: Clear separation of plugin code and dependencies
 
-## Core Implementation
+### 2. Core Interface Definition
+- [x] Create `core/interfaces.ts`
+  - Purpose: Define plugin system contracts
+  - Contains: Plugin interface, lifecycle hooks, event system
+  - Why: Establish clear boundaries between core and plugins
 
-### 1. Layout System
-- [ ] Create responsive layout components
-  - [ ] AppShell.tsx
-  - [ ] MainLayout.tsx
-  - [ ] Sidebar.tsx
-  - [ ] Header.tsx
-- [ ] Implement mobile-first grid system
-- [ ] Add breakpoint utilities
+### 3. Plugin Manager Implementation
+- [x] Create `core/plugin-manager.ts`
+  - Purpose: Handle plugin lifecycle and registration
+  - Features:
+    - [x] Plugin loading/unloading
+    - [x] Dependency resolution
+    - [x] Event handling
+    - [x] Error management
+  - Why: Centralize plugin management and ensure proper isolation
 
-### 2. Theme System
-- [ ] Create theme context and provider
-- [ ] Implement dark/light mode
-- [ ] Set up CSS custom properties
-- [ ] Create theme switching animation
+### 4. Base Server Refactoring
+- [x] Create `core/base-server.ts`
+  - Purpose: Extract core MCP functionality
+  - Features:
+    - [x] MCP protocol handling
+    - [x] Plugin system integration
+    - [x] Server lifecycle management
+  - Why: Separate protocol handling from business logic
 
-### 3. Component Library
-- [ ] Create base components
-  - [ ] Button.tsx
-  - [ ] Card.tsx
-  - [ ] Input.tsx
-  - [ ] Modal.tsx
-- [ ] Add animation HOCs
-- [ ] Implement shared styles
+## Phase 2: Plugin Migration
 
-### 4. Animation System
-- [ ] Create animation hooks
-  ```typescript
-  use_page_transition
-  use_element_animation
-  use_scroll_animation
-  ```
-- [ ] Set up transition components
-- [ ] Implement loading states
-- [ ] Add micro-interactions
+### 1. Core Plugin
+- [x] Create `/src/plugins/core/index.ts`
+  - Purpose: Basic Obsidian functionality
+  - Components migrated:
+    - [x] Note CRUD operations
+    - [x] File system management
+    - [x] Metadata handling
+  - Why: Establish foundation for vault operations
 
-### 5. State Management
-- [ ] Configure global state management
-- [ ] Set up React Query for server state
-- [ ] Create state persistence layer
-- [ ] Implement optimistic updates
+### 2. Coaching Plugin
+- [x] Create `/src/plugins/coaching/index.ts`
+  - Purpose: Goal and habit tracking
+  - Components migrated:
+    - [x] Goal creation/management
+    - [x] Habit tracking
+    - [x] Progress monitoring
+  - Why: Isolate coaching-specific features
 
-## Performance Optimization
+### 3. Health Plugin
+- [ ] Create `/src/plugins/health/index.ts`
+  - Purpose: Health metrics and tracking
+  - Components to migrate:
+    - [ ] Health metric creation
+    - [ ] Tracking functionality
+    - [ ] Data visualization
+  - Why: Separate health-related features
 
-### 1. Code Optimization
-- [ ] Set up code splitting
-- [ ] Implement lazy loading
-- [ ] Configure dynamic imports
-- [ ] Add prefetching strategies
+## Phase 3: Shared Infrastructure
 
-### 2. Asset Optimization
-- [ ] Configure image optimization
-- [ ] Set up font loading
-- [ ] Implement asset preloading
-- [ ] Add caching strategies
+### 1. Utility Functions
+- [ ] Create `shared/utils.ts`
+  - Purpose: Common functionality
+  - Components:
+    - [ ] File operations
+    - [ ] Path normalization
+    - [ ] Type checking
+  - Why: Centralize commonly used functions
 
-### 3. Performance Monitoring
-- [ ] Add performance metrics
-- [ ] Set up error boundaries
-- [ ] Implement logging
-- [ ] Create performance tests
+### 2. Type Definitions
+- [ ] Create `shared/types.ts`
+  - Purpose: Shared type definitions
+  - Components:
+    - [ ] Note types
+    - [ ] Tool responses
+    - [ ] Common interfaces
+  - Why: Maintain type consistency across plugins
 
-## Gamification Elements
+## Phase 4: Integration and Testing
 
-### 1. Progress System
-- [ ] Create XP tracking system
-- [ ] Implement level progression
-- [ ] Add achievement system
-- [ ] Design skill trees
+### 1. Plugin Loading
+- [ ] Update `src/index.ts`
+  - Purpose: Initialize plugin system
+  - Tasks:
+    - [ ] Configure plugin manager
+    - [ ] Load core plugins
+    - [ ] Handle startup sequence
+  - Why: Ensure proper system initialization
 
-### 2. Visual Feedback
-- [ ] Create particle system
-- [ ] Implement progress animations
-- [ ] Add success celebrations
-- [ ] Design milestone reveals
+### 2. Testing Infrastructure
+- [ ] Create test structure for plugins
+  - Purpose: Validate plugin functionality
+  - Components:
+    - [ ] Core plugin tests
+    - [ ] Coaching plugin tests
+    - [ ] Health plugin tests
+  - Why: Ensure reliability and isolation
 
-## Testing and Documentation
+## Phase 5: Documentation
 
-### 1. Testing Setup
-- [ ] Configure Jest and React Testing Library
-- [ ] Add component tests
-- [ ] Create integration tests
-- [ ] Set up E2E testing
+### 1. Plugin Development Guide
+- [ ] Create plugin documentation
+  - Purpose: Guide for plugin creation
+  - Components:
+    - [ ] API reference
+    - [ ] Best practices
+    - [ ] Example implementations
+  - Why: Enable future plugin development
 
-### 2. Documentation
-- [ ] Create component documentation
-- [ ] Add usage examples
-- [ ] Document animation patterns
-- [ ] Create style guide
+### 2. Migration Guide
+- [ ] Document migration process
+  - Purpose: Help transition existing code
+  - Components:
+    - [ ] Step-by-step guide
+    - [ ] Common patterns
+    - [ ] Troubleshooting
+  - Why: Facilitate smooth transitions
 
 ## Success Criteria
-- [ ] Achieves 90+ Lighthouse scores
-- [ ] Maintains 60fps animations
-- [ ] Passes all accessibility tests
-- [ ] Responsive across all breakpoints
-- [ ] Implements all gamification features
-- [ ] Meets performance budgets
+1. All plugins function independently
+2. Core server handles plugin lifecycle
+3. No cross-plugin dependencies
+4. Clean separation of concerns
+5. Comprehensive test coverage
+6. Clear documentation
 
-## Implementation Notes
-
-### Naming Conventions
-- React components: PascalCase (AppShell.tsx)
-- Hooks: snake_case (use_animation.ts)
-- Utilities: snake_case (format_date.ts)
-- Styles: snake_case (button_styles.ts)
-- Types: PascalCase with I prefix (IButtonProps)
-
-### File Organization
-- Group by feature first, type second
-- Keep related files close together
-- Use index files for clean imports
-- Maintain consistent directory structure
-
-### Performance Guidelines
-- Use React.memo() strategically
-- Implement proper code splitting
-- Optimize animation performance
-- Minimize bundle size
-- Use proper image formats
-
-### Animation Strategy
-- Use Framer Motion for UI animations
-- GSAP for complex sequences
-- React Spring for physics-based effects
-- Lottie for micro-interactions
-
-*Note: This TASKLIST will be updated as development progresses and new requirements emerge.*
+## Notes
+- Each step builds on previous work
+- Focus on maintaining functionality while refactoring
+- Test thoroughly after each migration
+- Document changes as they occur
+- Consider backward compatibility
