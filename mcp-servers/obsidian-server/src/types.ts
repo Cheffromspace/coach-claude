@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BaseMetadataSchema, LinkSchema, VersionSchema, TagHierarchySchema } from "./schemas.js";
+import { BaseMetadataSchema, LinkSchema, VersionSchema, TagHierarchySchema } from "./plugins/core/schemas.js";
 
 // Metadata and version management types
 export type Metadata = z.infer<typeof BaseMetadataSchema>;
