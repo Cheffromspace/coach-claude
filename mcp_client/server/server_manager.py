@@ -405,26 +405,26 @@ class ServerManager:
                     try:
                         logger.debug(f"Processing tool {i} from {server_name}: {tool}")
                         # Format tool info for Claude 3
-                        # Format tool info for Claude 3
                         tool_info = {
                             "name": tool.name,
                             "description": tool.description,
                         }
                         
-                        # Ensure input_schema has required structure
-                        input_schema = {
-                            "type": "object",
-                            "properties": {},
-                            "required": []
-                        }
-                        
-                        if hasattr(tool, 'inputSchema') and isinstance(tool.inputSchema, dict):
-                            if 'properties' in tool.inputSchema:
-                                input_schema["properties"] = tool.inputSchema["properties"]
-                            if 'required' in tool.inputSchema:
-                                input_schema["required"] = tool.inputSchema["required"]
-                        
-                        tool_info["input_schema"] = input_schema
+                        # Handle input schema
+                        if hasattr(tool, 'inputSchema'):
+                            # Convert Zod schema to JSON Schema format
+                            tool_info["input_schema"] = {
+                                "type": "object",
+                                "properties": tool.inputSchema._def.shape() if hasattr(tool.inputSchema, '_def') else {},
+                                "required": tool.inputSchema._def.shape().keys() if hasattr(tool.inputSchema, '_def') else []
+                            }
+                        else:
+                            # Provide default schema structure if none exists
+                            tool_info["input_schema"] = {
+                                "type": "object",
+                                "properties": {},
+                                "required": []
+                            }
                         tools.append(tool_info)
                     except Exception as e:
                         logger.error(f"Error processing tool {i} from {server_name}", exc_info=True)
