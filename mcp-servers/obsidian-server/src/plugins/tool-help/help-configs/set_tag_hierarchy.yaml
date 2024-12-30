@@ -1,0 +1,41 @@
+summary: Define hierarchical relationships between tags
+description: Establishes parent-child relationships between tags to create a hierarchical tag structure that can be used for organization and enhanced searching.
+
+examples:
+  - |
+    {
+      "tag": "exercise",
+      "parent": "health",
+      "children": ["running", "weightlifting", "yoga"]
+    }
+
+sections:
+  - title: Required Fields
+    content: |
+      - tag: string
+        The tag to set hierarchy for
+
+  - title: Optional Fields
+    content: |
+      - parent: string
+        Parent tag to set for this tag
+
+      - children: string[]
+        Array of child tags for this tag
+
+  - title: Hierarchy Rules
+    content: |
+      - A tag can have only one parent
+      - A tag can have multiple children
+      - Circular relationships are not allowed
+      - Setting a new parent removes any existing parent relationship
+      - Adding children creates bi-directional parent-child relationships
+      - Removing a parent breaks all inherited relationships
+
+  - title: Usage Notes
+    content: |
+      - Use hierarchies to create logical groupings of tags
+      - Hierarchies affect tag-based searches when includeChildren is true
+      - Parent tags provide context and organization
+      - Child tags represent more specific subcategories
+      - Tags can exist without being part of a hierarchy

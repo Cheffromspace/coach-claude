@@ -1,0 +1,29 @@
+summary: Create a new note in the vault
+description: Creates a new markdown note with optional frontmatter metadata and content. The note will be created in the specified folder with the given title.
+
+examples:
+  - Create a simple note: { "folder": "misc", "title": "My Note", "content": "# My Note\n\nSome content here" }
+  - Create note with metadata: { "folder": "projects", "title": "Project X", "content": "# Project X\n\nProject details...", "metadata": { "type": "project", "status": "active", "tags": ["work", "planning"] } }
+  - Create dated note: { "folder": "journal", "title": "Daily Log", "content": "Today's notes...", "useDate": true }
+
+sections:
+  - title: Arguments
+    content: |
+      folder: (required) The folder path where the note should be created
+      title: (required) The title of the note
+      content: (required) The main content of the note
+      metadata: (optional) An object containing frontmatter metadata fields
+      useDate: (optional) Whether to prefix the filename with today's date (YYYY-MM-DD-)
+
+  - title: Returns
+    content: A success message with the created note's path
+
+  - title: Notes
+    content: |
+      - The note title will be converted to a filename by:
+        - Converting to lowercase
+        - Replacing spaces with hyphens
+        - Adding .md extension
+      - If useDate is true, the filename will be prefixed with YYYY-MM-DD-
+      - The folder will be created if it doesn't exist
+      - Any provided metadata will be added as YAML frontmatter

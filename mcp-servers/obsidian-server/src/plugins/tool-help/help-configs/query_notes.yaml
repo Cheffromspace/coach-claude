@@ -1,0 +1,53 @@
+summary: Query notes using Dataview-style syntax
+description: Executes structured queries to filter and retrieve notes based on various criteria using a Dataview-inspired query syntax.
+
+examples:
+  - |
+    {
+      "query": "FROM \"journal\" WHERE type=reflection AND date >= 2024-01-01 SORT date DESC",
+      "filters": {
+        "tags": ["productivity", "health"],
+        "dateRange": {
+          "start": "2024-01-01",
+          "end": "2024-01-31"
+        }
+      }
+    }
+  - |
+    {
+      "query": "#health #exercise"
+    }
+
+sections:
+  - title: Required Fields
+    content: |
+      - query: string
+        Dataview-style query to filter and retrieve notes
+
+  - title: Optional Fields
+    content: |
+      - filters: object
+        * tags: string[] - Filter by tags
+        * type: string - Filter by note type
+        * dateRange: object
+          - start: string - Start date (YYYY-MM-DD)
+          - end: string - End date (YYYY-MM-DD)
+        * linkType: string - Filter by link type
+
+  - title: Query Syntax
+    content: |
+      The query syntax follows Dataview conventions:
+      - FROM "folder" - Search in specific folder
+      - WHERE condition - Filter by conditions
+      - SORT field [ASC|DESC] - Sort results
+      - LIMIT n - Limit number of results
+
+  - title: Tag Query Shorthand
+    content: |
+      You can also use #tag syntax in queries:
+      {
+        "query": "#health #exercise"
+      }
+
+      This will be converted to:
+      FROM "" WHERE contains(tags, "health") or contains(tags, "exercise")

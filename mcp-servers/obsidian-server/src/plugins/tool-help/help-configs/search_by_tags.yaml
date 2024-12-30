@@ -1,0 +1,35 @@
+summary: Search notes by tags with flexible matching options
+description: Performs tag-based note searches with support for AND/OR operations and hierarchical tag relationships.
+
+examples:
+  - |
+    {
+      "tags": ["health", "exercise"],
+      "operator": "AND",
+      "includeChildren": true,
+      "caseSensitive": false
+    }
+
+sections:
+  - title: Required Fields
+    content: |
+      - tags: string[]
+        Array of tags to search for
+
+  - title: Optional Fields
+    content: |
+      - operator: "AND" | "OR" (default: "AND")
+        Whether to match all tags (AND) or any tag (OR)
+
+      - includeChildren: boolean (default: false)
+        Whether to include notes tagged with child tags
+
+      - caseSensitive: boolean (default: false)
+        Whether to perform case-sensitive tag matching
+
+  - title: Search Behavior
+    content: |
+      - AND operator requires all specified tags to be present on a note
+      - OR operator matches notes that have any of the specified tags
+      - When includeChildren is true, matches will include notes tagged with any child tags
+      - Tag hierarchy is respected when searching (parent-child relationships)

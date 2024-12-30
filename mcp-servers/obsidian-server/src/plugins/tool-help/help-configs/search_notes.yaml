@@ -1,0 +1,50 @@
+summary: Search notes using regular expressions with context
+description: Performs a regex-based search across notes with support for case sensitivity, match limits, and contextual lines.
+
+examples:
+  - |
+    {
+      "pattern": "\\b\\w+ing\\b",
+      "caseSensitive": false,
+      "maxMatchesPerFile": 5,
+      "contextLines": 3,
+      "filePattern": "^journal/.*\\.md$"
+    }
+
+sections:
+  - title: Required Fields
+    content: |
+      - pattern: string
+        Regular expression pattern to search for in notes
+
+  - title: Optional Fields
+    content: |
+      - caseSensitive: boolean (default: false)
+        Whether to perform case-sensitive matching
+
+      - maxMatchesPerFile: number (default: 3)
+        Maximum number of matches to return per file
+
+      - contextLines: number (default: 2)
+        Number of lines of context to include before and after each match
+
+      - filePattern: string
+        Regular expression to filter files by name/path
+
+  - title: Response Format
+    content: |
+      The tool returns matches in this format:
+
+      File: path/to/note.md
+        Line 12:
+          Previous context line
+          Matched line with pattern
+          Next context line
+
+      ---
+
+      File: another/note.md
+        Line 45:
+          More context
+          Another match
+          Following context
