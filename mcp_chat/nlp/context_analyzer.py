@@ -24,7 +24,6 @@ except OSError:
 TOOL_KEYWORDS = {
     'obsidian': ['note', 'vault', 'template', 'link', 'knowledge base', 'wiki'],
     'browser': ['web', 'search', 'browse', 'url', 'website', 'internet'],
-    'weather': ['weather', 'forecast', 'temperature', 'climate', 'precipitation'],
     'file': ['file', 'directory', 'folder', 'path', 'document', 'storage'],
     'database': ['database', 'query', 'record', 'data', 'store'],
     'api': ['api', 'endpoint', 'request', 'service', 'integration']

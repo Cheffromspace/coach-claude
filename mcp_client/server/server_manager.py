@@ -171,7 +171,7 @@ class ServerManager:
         return True
 
     async def _check_server_health(self, server_name: str) -> bool:
-        """Check if a server is healthy by checking tool availability"""
+        """Check if a server is healthy by checking tool availability and process state"""
         try:
             if server_name not in self.servers:
                 logger.debug(f"[{server_name}] Server not found in self.servers")
@@ -180,28 +180,57 @@ class ServerManager:
             logger.debug(f"[{server_name}] Starting health check...")
             server_info = self.servers[server_name]
 
-            try:
-                tools_response = await asyncio.wait_for(
-                    server_info.session.list_tools(),
-                    timeout=120
-                )
-                logger.debug(f"[{server_name}] Health check tools response: {tools_response}")
-                
-                if not tools_response or not hasattr(tools_response, 'tools'):
-                    logger.error(f"[{server_name}] Invalid tools response: {tools_response}")
+            # First check process state
+            if server_name in self.server_processes:
+                process = self.server_processes[server_name]
+                if process.poll() is not None:
+                    logger.error(f"[{server_name}] Process terminated with code: {process.poll()}")
+                    await self.cleanup_server(server_name)
                     return False
-                    
-                logger.debug(f"[{server_name}] Found {len(tools_response.tools)} tools")
-                self.last_health_checks[server_name] = datetime.now()
-                return True
-                
-            except asyncio.TimeoutError:
-                logger.error(f"[{server_name}] Health check timed out after 120 seconds")
-                return False
-                
+
+            # Then check network connectivity
+            try:
+                # First try a quick ping
+                await asyncio.wait_for(
+                    server_info.session.initialize(),
+                    timeout=5
+                )
+            except Exception as e:
+                logger.warning(f"[{server_name}] Quick health check failed: {e}")
+                # If quick check fails, try full tools check
+                try:
+                    tools_response = await asyncio.wait_for(
+                        server_info.session.list_tools(),
+                        timeout=30
+                    )
+                    if not tools_response or not hasattr(tools_response, 'tools'):
+                        logger.error(f"[{server_name}] Invalid tools response: {tools_response}")
+                        return False
+
+                    tool_count = len(tools_response.tools)
+                    if tool_count == 0:
+                        logger.warning(f"[{server_name}] Server has no tools available")
+                        return False
+
+                    logger.debug(f"[{server_name}] Found {tool_count} tools")
+                    self.last_health_checks[server_name] = datetime.now()
+                    return True
+
+                except asyncio.TimeoutError:
+                    logger.error(f"[{server_name}] Health check timed out after 30 seconds")
+                    return False
+                except Exception as e:
+                    logger.error(f"[{server_name}] Health check failed: {e}", exc_info=True)
+                    return False
+
+            self.last_health_checks[server_name] = datetime.now()
+            return True
+
         except Exception as e:
             logger.error(f"[{server_name}] Health check failed with exception", exc_info=True)
             logger.debug(f"[{server_name}] Server state: {self.servers.get(server_name)}")
+            # Schedule cleanup on critical failures
+            asyncio.create_task(self.cleanup_server(server_name))
             return False
 
     async def connect_to_server(self, server_name: str, timeout: int = 120) -> bool:
@@ -466,7 +495,7 @@ class ServerManager:
         return available_tools
 
     async def call_tool(self, tool_name: str, tool_args: dict, timeout: int = 60) -> Optional[dict]:
-        """Call a tool on the appropriate server"""
+        """Call a tool on the appropriate server with enhanced error handling and recovery"""
         logger.debug(f"Attempting to call tool {tool_name} with args {tool_args}")
         
         if not isinstance(tool_args, dict):
@@ -476,56 +505,122 @@ class ServerManager:
         logger.debug(f"Connected servers: {self.connected_servers}")
         logger.debug(f"Available servers: {list(self.servers.keys())}")
         
-        for server_name, server_info in self.servers.items():
-            try:
-                # First check if this server has the tool
-                tools_response = await asyncio.wait_for(
-                    server_info.session.list_tools(),
-                    timeout=60
-                )
-                
-                if any(tool.name == tool_name for tool in tools_response.tools):
-                    logger.info(f"Found tool {tool_name} on server {server_name}")
+        # Track servers that have failed
+        failed_servers = set()
+        retry_count = 0
+        max_retries = 2
+        
+        while retry_count <= max_retries:
+            for server_name, server_info in self.servers.items():
+                if server_name in failed_servers:
+                    continue
+                    
+                try:
+                    # Verify server health first
+                    if not await self._check_server_health(server_name):
+                        logger.warning(f"[{server_name}] Server unhealthy, skipping")
+                        failed_servers.add(server_name)
+                        continue
+                    
+                    # Check if this server has the tool
                     try:
-                        response = await asyncio.wait_for(
-                            server_info.session.call_tool(tool_name, tool_args),
-                            timeout=timeout
+                        tools_response = await asyncio.wait_for(
+                            server_info.session.list_tools(),
+                            timeout=30
                         )
-                        logger.debug(f"[{server_name}] Tool response: {response}")
-                        logger.info(f"Successfully called {tool_name} on {server_name}")
                         
-                        # Extract content from CallToolResult
-                        formatted_response = []
-                        if hasattr(response, 'content'):
-                            for content in response.content:
-                                if hasattr(content, 'type') and hasattr(content, 'text'):
-                                    formatted_response.append({
-                                        "type": content.type,
-                                        "text": content.text
-                                    })
+                        if not tools_response or not hasattr(tools_response, 'tools'):
+                            logger.error(f"[{server_name}] Invalid tools response")
+                            failed_servers.add(server_name)
+                            continue
+                            
+                        if not any(tool.name == tool_name for tool in tools_response.tools):
+                            continue  # Tool not found on this server
+                            
+                        logger.info(f"Found tool {tool_name} on server {server_name}")
                         
-                        return {
-                            "result": "success",
-                            "tool": tool_name,
-                            "args": tool_args,
-                            "response": formatted_response
-                        }
+                        # Attempt tool call with retry logic
+                        for attempt in range(2):
+                            try:
+                                response = await asyncio.wait_for(
+                                    server_info.session.call_tool(tool_name, tool_args),
+                                    timeout=timeout
+                                )
+                                
+                                if not response:
+                                    logger.error(f"[{server_name}] Empty response from tool")
+                                    if attempt < 1:
+                                        logger.info(f"[{server_name}] Retrying tool call...")
+                                        continue
+                                    break
+                                    
+                                logger.debug(f"[{server_name}] Tool response: {response}")
+                                logger.info(f"Successfully called {tool_name} on {server_name}")
+                                
+                                # Extract and validate content
+                                formatted_response = []
+                                if hasattr(response, 'content'):
+                                    for content in response.content:
+                                        if hasattr(content, 'type') and hasattr(content, 'text'):
+                                            formatted_response.append({
+                                                "type": content.type,
+                                                "text": content.text
+                                            })
+                                
+                                if not formatted_response:
+                                    logger.warning(f"[{server_name}] No content in response")
+                                    if attempt < 1:
+                                        continue
+                                        
+                                return {
+                                    "result": "success",
+                                    "tool": tool_name,
+                                    "args": tool_args,
+                                    "response": formatted_response
+                                }
+                                
+                            except asyncio.TimeoutError:
+                                logger.error(f"[{server_name}] Tool call timed out after {timeout}s")
+                                if attempt < 1:
+                                    logger.info(f"[{server_name}] Retrying after timeout...")
+                                    continue
+                                break
+                            except Exception as e:
+                                logger.error(f"[{server_name}] Error calling tool: {str(e)}")
+                                if "connection" in str(e).lower():
+                                    await self.cleanup_server(server_name)
+                                    failed_servers.add(server_name)
+                                break
+                                
                     except asyncio.TimeoutError:
-                        logger.error(f"[{server_name}] Tool call timed out after {timeout}s")
-                        continue
+                        logger.error(f"[{server_name}] Timeout listing tools")
+                        failed_servers.add(server_name)
                     except Exception as e:
-                        logger.error(f"[{server_name}] Error calling tool: {str(e)}")
-                        if "connection" in str(e).lower():
-                            await self.cleanup_server(server_name)
-                        continue
-            except asyncio.TimeoutError:
-                logger.error(f"[{server_name}] Timeout listing tools")
-                continue
-            except Exception as e:
-                logger.error(f"[{server_name}] Error checking tools", exc_info=True)
-                continue
+                        logger.error(f"[{server_name}] Error checking tools", exc_info=True)
+                        failed_servers.add(server_name)
+                        
+                except Exception as e:
+                    logger.error(f"[{server_name}] Critical error during tool call", exc_info=True)
+                    failed_servers.add(server_name)
+                    await self.cleanup_server(server_name)
+            
+            # If we've tried all servers and none worked, try reconnecting to failed ones
+            if len(failed_servers) == len(self.servers):
+                if retry_count < max_retries:
+                    logger.info("All servers failed, attempting reconnection...")
+                    for server_name in failed_servers:
+                        try:
+                            if await self.connect_to_server(server_name):
+                                failed_servers.remove(server_name)
+                        except Exception as e:
+                            logger.error(f"Failed to reconnect to {server_name}: {e}")
+                    retry_count += 1
+                else:
+                    break
+            else:
+                break
                 
-        logger.error(f"Tool {tool_name} not found in any connected server")
+        logger.error(f"Tool {tool_name} not found or failed on all available servers")
         return None
 
     async def cleanup_server(self, server_name: str):

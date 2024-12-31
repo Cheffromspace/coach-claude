@@ -36,6 +36,11 @@ class ConversationSession:
     tool_usage: List[ToolUsage] = field(default_factory=list)
     system_prompts: List[Dict] = field(default_factory=list)
 
+    @property
+    def context(self) -> Dict:
+        """Get the current context from metadata"""
+        return self.metadata.get('current_context', {})
+
     def to_dict(self) -> Dict:
         """Convert session to dictionary for serialization"""
         return {

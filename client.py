@@ -1,6 +1,8 @@
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stdin.reconfigure(encoding='utf-8')
 import asyncio
 import logging
-import sys
 import signal
 import socket
 from contextlib import AsyncExitStack
@@ -127,22 +129,53 @@ async def initialize_servers(server_manager, config_manager, timeout=60):
 # Global variable to track the main task
 main_task = None
 
+# Keep a global reference to prevent garbage collection
+_windows_handler = None
+
 def handle_windows_signal(signal_type):
-    """Handle Windows control signals"""
-    if signal_type in (win32con.CTRL_C_EVENT, win32con.CTRL_BREAK_EVENT):
-        logger.info(f"Received Windows signal: {signal_type}")
-        if main_task and not main_task.done():
-            # Schedule the cancellation in the event loop
-            asyncio.get_event_loop().call_soon_threadsafe(main_task.cancel)
-        return True  # Signal handled
-    return False  # Not handled
+    """Handle Windows control signals with robust error handling"""
+    global main_task
+    try:
+        if signal_type in (win32con.CTRL_C_EVENT, win32con.CTRL_BREAK_EVENT):
+            logger.info(f"Received Windows signal: {signal_type}")
+            if main_task and not main_task.done():
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.call_soon_threadsafe(main_task.cancel)
+                        logger.info("Successfully scheduled task cancellation")
+                    else:
+                        logger.warning("Event loop not running, forcing exit")
+                        sys.exit(0)
+                except Exception as e:
+                    logger.error(f"Failed to cancel main task: {e}", exc_info=True)
+                    sys.exit(0)
+            return True
+        return False
+    except Exception as e:
+        logger.critical(f"Critical error in signal handler: {e}", exc_info=True)
+        sys.exit(0)
 
 async def main():
-    """Main entry point for the MCP client"""
+    """Main entry point for the MCP client with enhanced error handling"""
     logger.info("Starting MCP client...")
     
-    # Register Windows signal handler
-    win32api.SetConsoleCtrlHandler(handle_windows_signal, True)
+    # Set up signal handlers
+    if sys.platform == 'win32':
+        global _windows_handler
+        try:
+            # Store handler reference to prevent garbage collection
+            _windows_handler = handle_windows_signal
+            if not win32api.SetConsoleCtrlHandler(_windows_handler, True):
+                # Fall back to basic signal handlers if Windows-specific handler fails
+                logger.warning("Failed to set Windows signal handler, falling back to basic handlers")
+                signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
+                signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+        except Exception as e:
+            logger.error(f"Error setting up signal handlers: {e}", exc_info=True)
+            # Set up basic signal handlers as fallback
+            signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
+            signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
     
     try:
         # Initialize components
@@ -168,7 +201,12 @@ async def main():
             
         # Start chat interface with fresh history
         logger.info("Starting chat interface...")
-        chat_interface = MCPChatInterface(message_processor, load_existing_history=False)
+        chat_interface = MCPChatInterface(
+            message_processor,
+            config=config_manager.config,
+            exit_stack=exit_stack,
+            load_existing_history=False
+        )
         await chat_interface.run()
     except KeyboardInterrupt:
         logger.info("Received shutdown signal")
@@ -183,31 +221,66 @@ async def main():
     return 0
 
 if __name__ == "__main__":
+    exit_code = 1  # Default to error
+    loop = None
     try:
-        # Create and configure event loop with system DNS resolver
-        loop = asyncio.new_event_loop()
-        loop.set_debug(False)  # Disable debug output
-        
-        # Configure Windows-specific DNS resolution
-        if sys.platform == 'win32':
-            import asyncio.windows_events
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        # Create and configure event loop with enhanced error handling
+        try:
+            loop = asyncio.new_event_loop()
+            loop.set_debug(False)  # Disable debug output
             
-        asyncio.set_event_loop(loop)
-        main_task = loop.create_task(main())
-        exit_code = loop.run_until_complete(main_task)
-        loop.close()
-        
-        # Cleanup Windows networking
-        if sys.platform == 'win32':
-            cleanup_windows_networking()
+            # Configure Windows-specific DNS resolution
+            if sys.platform == 'win32':
+                import asyncio.windows_events
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
                 
-        sys.exit(exit_code)
-    except asyncio.CancelledError:
-        logger.info("Application cancelled gracefully")
-        sys.exit(0)
+            asyncio.set_event_loop(loop)
+        except Exception as e:
+            logger.critical(f"Failed to initialize event loop: {e}", exc_info=True)
+            sys.exit(1)
+            
+        # Create and run main task with timeout
+        try:
+            main_task = loop.create_task(main())
+            exit_code = loop.run_until_complete(
+                asyncio.wait_for(main_task, timeout=3600)  # 1 hour timeout
+            )
+        except asyncio.TimeoutError:
+            logger.error("Main task timed out after 1 hour")
+            exit_code = 1
+        except asyncio.CancelledError:
+            logger.info("Main task cancelled gracefully")
+            exit_code = 0
+    except KeyboardInterrupt:
+        logger.info("Received keyboard interrupt")
+        if loop and main_task:
+            loop.call_soon_threadsafe(main_task.cancel)
+            try:
+                loop.run_until_complete(asyncio.wait_for(main_task, timeout=5.0))
+            except:
+                pass
     except Exception as e:
         logger.critical(f"Fatal error: {str(e)}", exc_info=True)
-        if sys.platform == 'win32':
-            cleanup_windows_networking()
-        sys.exit(1)
+    finally:
+        try:
+            if loop:
+                # Cancel any pending tasks
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                    
+                # Wait briefly for tasks to cancel
+                if pending:
+                    loop.run_until_complete(asyncio.wait(pending, timeout=5.0))
+                    
+                # Close the loop
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.close()
+                
+            # Cleanup Windows networking
+            if sys.platform == 'win32':
+                cleanup_windows_networking()
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}", exc_info=True)
+        
+        sys.exit(exit_code)

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 from datetime import datetime
 import time
+from .scratch_pad import ScratchPadManager
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +28,10 @@ class PromptTemplate:
 class SystemPromptManager:
     """Manages system prompts and templates"""
 
-    def __init__(self, prompts_dir: str = 'chat_history/prompts'):
+    def __init__(self, config: dict, exit_stack, prompts_dir: str = 'chat_history/prompts'):
         self.prompts_dir = prompts_dir
         self.templates: Dict[str, PromptTemplate] = {}
+        self.scratch_pad = ScratchPadManager(config, exit_stack)
         self._ensure_directories()
         self._load_templates()
         if not self.templates:
@@ -120,7 +122,7 @@ class SystemPromptManager:
 
         return result
 
-    def get_prompts_by_context(self, context: Dict) -> List[Dict]:
+    async def get_prompts_by_context(self, context: Dict) -> List[Dict]:
         """Get system prompts based on conversation context"""
         logger.debug(f"Getting prompts for context: {json.dumps(context, indent=2)}")
         selected_prompts = []
@@ -133,6 +135,16 @@ class SystemPromptManager:
             selected_prompts.append(personality)
         else:
             logger.warning("Failed to generate core personality prompt")
+
+        # Add scratch pad content if available
+        scratch_content = await self.scratch_pad.get_content()
+        if scratch_content and scratch_content != "No context available yet.":
+            logger.debug("Adding scratch pad content")
+            scratch = {
+                "type": "text",
+                "text": f"Dynamic Context:\n{scratch_content}"
+            }
+            selected_prompts.append(scratch)
 
         # Add context-specific prompts
         message_type = context.get('message_type', '')
@@ -167,9 +179,9 @@ class SystemPromptManager:
         logger.debug(f"Selected {len(selected_prompts)} prompts total")
         return selected_prompts
 
-    def get_default_prompts(self) -> List[Dict]:
+    async def get_default_prompts(self) -> List[Dict]:
         """Get default system prompts for new sessions"""
-        return self.get_prompts_by_context({
+        return await self.get_prompts_by_context({
             'message_type': 'task',
             'interaction_phase': 'start',
             'sensitive_data': True
@@ -184,6 +196,26 @@ def get_system_datetime() -> str:
 def create_default_templates() -> List[PromptTemplate]:
     """Create default system prompt templates"""
     return [
+        PromptTemplate(
+            name="scratch_pad_instructions",
+            content="""You can maintain dynamic context by:
+1. Adding important information with await scratch_pad.append_content()
+2. Updating entire context with await scratch_pad.update_content()
+3. Clearing context with await scratch_pad.clear_content()
+4. Retrieving current context with await scratch_pad.get_content()
+
+Use this to track:
+- Key conversation points
+- User preferences and traits
+- Important patterns or insights
+- Ongoing goals and progress
+
+Note: All scratch pad operations are asynchronous and require await.""",
+            description="Instructions for using the scratch pad",
+            variables=[],
+            tags=["core", "memory"],
+            cache_control=True
+        ),
         PromptTemplate(
             name="coach_personality",
             content="""You are Coach Claude, an empathetic and insightful personal development coach with a warm yet professional demeanor. Your approach combines:

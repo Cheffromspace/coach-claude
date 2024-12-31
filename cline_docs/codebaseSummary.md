@@ -52,7 +52,36 @@ A robust Python implementation of the MCP client that connects to and manages mu
 - Efficient resource management
 - Cross-server tool orchestration
 
-## 2. TypeScript MCP Server (Obsidian Integration)
+## 2. TypeScript MCP Server (Scratchpad)
+
+A dedicated MCP server that manages dynamic context through a scratchpad system, providing persistent memory and context management capabilities.
+
+### Server Components
+
+#### Core Server (`src/`)
+- **Server Implementation** (`index.ts`)
+  - MCP protocol endpoint
+  - Scratchpad file operations
+  - Context management
+
+- **Utilities** (`utils/`)
+  - **File Operations** (`file.ts`)
+    - File I/O handling
+    - Content validation
+    - Error handling
+  - **Validation** (`validation.ts`)
+    - Input validation
+    - Content sanitization
+    - Schema enforcement
+
+### Server Features
+- Persistent context storage
+- Dynamic content updates
+- Atomic file operations
+- Content validation
+- Error recovery
+
+## 3. TypeScript MCP Server (Obsidian Integration)
 
 A specialized MCP server implementation that provides Obsidian vault integration capabilities through the MCP protocol.
 
@@ -167,6 +196,10 @@ graph TD
 - [x] Added tool definition schemas
 - [x] Enhanced error handling
 - [x] Optimized message processing
+- [x] Implemented scratchpad MCP server
+- [x] Integrated dynamic context in system prompts
+- [x] Added scratchpad content persistence
+- [x] Enhanced prompt management with dynamic loading
 
 ## Next Steps
 
@@ -192,6 +225,7 @@ All project documentation is maintained in `cline_docs/`:
 - `projectRoadmap.md`: Development roadmap
 - `techStack.md`: Technology choices
 - `currentTask.md`: Active development
+- `dynamic_prompts.md`: System prompts and NLP documentation
 - Additional specialized documentation
 
 *Note: This document is regularly updated to reflect the evolving architecture and implementation details of both the MCP client and server components.*

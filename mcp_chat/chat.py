@@ -19,45 +19,72 @@ from .nlp.context_analyzer import analyze_message_context
 logger = logging.getLogger(__name__)
 
 class MCPChatInterface:
-    def __init__(self, mcp_client, load_existing_history=False):
-        """Initialize chat interface with an MCPClient instance"""
+    def __init__(self, mcp_client, config: dict, exit_stack, load_existing_history=False):
+        """Initialize chat interface with an MCPClient instance and dependencies"""
         self.mcp_client = mcp_client
+        self.config = config
+        self.exit_stack = exit_stack
         
         # Initialize components
         self.console = ConsoleInterface()
         self.session_manager = SessionManager()
         self.cache_manager = CacheManager()
-        self.prompt_manager = SystemPromptManager()
+        self.prompt_manager = SystemPromptManager(
+            config,
+            exit_stack
+        )
         self.message_processor = MessageProcessor(self.session_manager)
         
-        # Start new session with core coaching personality if not loading history
-        if not load_existing_history:
-            logger.debug("Initializing new session with core personality prompt")
+        # Flag to indicate if we need to initialize a new session
+        self.needs_init = not load_existing_history
+        
+        # Start with core personality if needed
+        if self.needs_init:
+            logger.debug("Will initialize new session on startup")
+            
+            # Get core personality prompt
             personality = self.prompt_manager.get_template('coach_personality')
-            if personality:
-                logger.debug(f"Got personality template: {personality.name}")
-                system_prompt = {
-                    'type': 'text',
-                    'text': personality.content,
-                    'cache_control': personality.cache_control
-                }
-                
-                # Initialize with core personality and default context
-                initial_context = {
-                    'message_type': 'task',
-                    'interaction_phase': 'start',
-                    'sensitive_data': True,
-                    'tools_needed': []
-                }
-                logger.debug(f"Starting session with context: {initial_context}")
-                
-                self.session_manager.start_session(
-                    initial_context=initial_context,
-                    system_prompts=[system_prompt]
-                )
-                logger.debug("Session started with core personality")
-            else:
+            if not personality:
                 logger.error("Failed to get coach_personality template")
+                return
+                
+            # Initialize with core personality and default context
+            initial_context = {
+                'message_type': 'task',
+                'interaction_phase': 'start',
+                'sensitive_data': True,
+                'tools_needed': []
+            }
+            logger.debug(f"Starting session with context: {initial_context}")
+            
+            self.session_manager.start_session(
+                initial_context=initial_context,
+            system_prompts=[{
+                'type': 'text',
+                'text': personality.content,
+                'cache_control': {'type': 'persistent'} if personality.cache_control else None
+            }]
+            )
+            logger.debug("Session started with core personality")
+
+    async def _initialize_dynamic_prompts(self):
+        """Initialize session with dynamic prompts"""
+        if not self.needs_init:
+            return
+            
+        logger.debug("Initializing dynamic prompts")
+        
+        # Get current context
+        initial_context = self.session_manager.current_session.context
+        
+        # Get dynamic prompts
+        dynamic_prompts = await self.prompt_manager.get_prompts_by_context(initial_context)
+        
+        # Update session with all prompts (skip first since it's the personality we already have)
+        self.session_manager.current_session.system_prompts.extend(dynamic_prompts[1:])
+        
+        logger.debug("Dynamic prompts initialized")
+        self.needs_init = False
 
     def load_session(self, session_identifier: str) -> bool:
         """Load an existing session by number or ID"""
@@ -160,6 +187,9 @@ class MCPChatInterface:
 
     async def run(self):
         """Run the chat interface"""
+        # Initialize dynamic prompts if needed
+        await self._initialize_dynamic_prompts()
+        
         self.console.print_help()
         
         # Print existing session messages
@@ -272,6 +302,10 @@ class MCPChatInterface:
                     elif cmd == 'load' and len(cmd_parts) > 1:
                         session_id = cmd_parts[1]
                         if self.load_session(session_id):
+                            # Set flag to reload dynamic prompts for loaded session
+                            self.needs_init = True
+                            await self._initialize_dynamic_prompts()
+                            
                             # Print loaded session messages
                             for msg in self.session_manager.current_session.messages:
                                 self.console.print_message(msg)
@@ -323,40 +357,50 @@ class MCPChatInterface:
                         if self.session_manager.current_session:
                             self.session_manager.save_session()
                         
-                        # Start new session with core coaching personality
+                        # Initialize new session with dynamic context
+                        initial_context = {
+                            'message_type': 'task',
+                            'interaction_phase': 'start',
+                            'sensitive_data': True,
+                            'tools_needed': []
+                        }
+                        
+                        # Get core personality prompt
                         personality = self.prompt_manager.get_template('coach_personality')
-                        if personality:
-                            system_prompt = {
-                                'type': 'text',
-                                'text': personality.content,
-                                'cache_control': personality.cache_control
-                            }
-                            
-                            initial_context = {
-                                'message_type': 'task',
-                                'interaction_phase': 'start',
-                                'sensitive_data': True,
-                                'tools_needed': []
-                            }
-                            
-                            self.session_manager.start_session(
-                                initial_context=initial_context,
-                                system_prompts=[system_prompt]
-                            )
-                            
-                            self.console.print_message({
-                                'content': "Started new chat session",
-                                'role': 'system',
-                                'timestamp': '',
-                                'metadata': {}
-                            })
-                        else:
+                        if not personality:
                             self.console.print_message({
                                 'content': "Error: Failed to get coach personality template",
                                 'role': 'system',
                                 'timestamp': '',
                                 'metadata': {'error': 'Missing template'}
                             })
+                            continue
+                            
+                        # Start with core personality
+                        system_prompts = [{
+                            'type': 'text',
+                            'text': personality.content,
+                            'cache_control': {'type': 'persistent'} if personality.cache_control else None
+                        }]
+                        
+                        # Initialize session with core personality
+                        self.session_manager.start_session(
+                            initial_context=initial_context,
+                            system_prompts=system_prompts
+                        )
+                        
+                        # Set flag to load dynamic prompts
+                        self.needs_init = True
+                        
+                        # Initialize dynamic prompts
+                        await self._initialize_dynamic_prompts()
+                        
+                        self.console.print_message({
+                            'content': "Started new chat session",
+                            'role': 'system',
+                            'timestamp': '',
+                            'metadata': {}
+                        })
                     else:
                         self.console.print_message({
                             'content': "Unknown command",
