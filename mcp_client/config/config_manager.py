@@ -7,8 +7,10 @@ from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
 
 class ConfigManager:
-    def __init__(self, config_path: str = 'config.json'):
-        self.config_path = config_path
+    DEFAULT_CONFIG_PATH = 'config.json'
+    
+    def __init__(self, config_path: str = None):
+        self.config_path = config_path or self.DEFAULT_CONFIG_PATH
         load_dotenv()  # Load environment variables from .env
         self.config = self._load_config()
 

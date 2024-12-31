@@ -13,7 +13,9 @@ import time
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
+
+from ..processing.query_processor import QueryProcessor
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -39,6 +41,7 @@ class ServerManager:
         self.config = config
         self.health_check_task = None
         self.health_check_interval = 300  # seconds - increase to 5 minutes
+        self.query_processor = QueryProcessor(self)
 
     async def start_health_check_task(self):
         """Start background task for periodic health checks"""
@@ -384,6 +387,30 @@ class ServerManager:
                 if not await self._check_server_health(server_name):
                     raise ConnectionError(f"Server health check failed for {server_name}")
 
+    async def get_all_resources(self) -> list:
+        """Collect resources from all connected servers"""
+        resources = []
+        for server_name, server_info in self.servers.items():
+            try:
+                resources_response = await asyncio.wait_for(server_info.session.list_resources(), timeout=120)
+                if hasattr(resources_response, 'resources'):
+                    resources.extend(resources_response.resources)
+            except Exception as e:
+                logger.error(f"Failed to get resources from {server_name}", exc_info=True)
+        return resources
+
+    async def get_all_resource_templates(self) -> list:
+        """Collect resource templates from all connected servers"""
+        templates = []
+        for server_name, server_info in self.servers.items():
+            try:
+                templates_response = await asyncio.wait_for(server_info.session.list_resource_templates(), timeout=120)
+                if hasattr(templates_response, 'resourceTemplates'):
+                    templates.extend(templates_response.resourceTemplates)
+            except Exception as e:
+                logger.error(f"Failed to get resource templates from {server_name}", exc_info=True)
+        return templates
+
     async def get_all_tools(self) -> list:
         """Collect tools from all connected servers"""
         available_tools = []
@@ -574,3 +601,7 @@ class ServerManager:
         """Restart a server by stopping and starting it again."""
         await self.stop_server(server_name)
         await self.start_server(server_name)
+
+    async def process_query(self, content: str, context: Optional[List[Dict]] = None) -> str:
+        """Process a query using the core query processor."""
+        return await self.query_processor.process_query(content, context)
